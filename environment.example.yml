@@ -1,0 +1,9 @@
+name: vitpose
+channels:
+  - defaults
+dependencies:
+  - python=3.9
+  - pip
+  - setuptools<70
+  - wheel<0.45
+  - packaging

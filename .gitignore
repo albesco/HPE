@@ -1,0 +1,50 @@
+# Python virtual environment
+venv/
+.venv/
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+build/
+dist/
+*.egg-info/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# IDE and editor settings
+.vscode/
+.idea/
+
+# Local environment files
+.env
+.env.*
+
+# Project data and model artifacts
+data/
+models/
+outputs/
+logs/
+
+# Training checkpoints and weights
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.bin
+
+# Common runtime outputs
+*.log
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db

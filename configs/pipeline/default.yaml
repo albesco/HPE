@@ -1,0 +1,9 @@
+project_root: ~/HPE
+input: data/input/bus.jpg
+yolo_model: models/detection/yolo26x.pt
+pose_config: src/vitpose_base/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py
+pose_checkpoint: models/pose/coco.pth
+output_dir: data/output/pipeline
+intermediate_dir: data/intermediate/pipeline
+confidence: 0.25
+device: cuda:0
