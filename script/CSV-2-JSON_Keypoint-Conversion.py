@@ -1,101 +1,310 @@
+from __future__ import annotations
+
+import argparse
 import json
-import os
+import math
+import shutil
+from pathlib import Path
 
-# --- COSTANTI ---
-INPUT_FILE = "/home/albertosco/HPE/data/input/SwimXYZ_Initial/position_1,75/COCO/2D_cam_COCO.txt"  # Il tuo file CSV/TXT con i dati
-IMAGE_WIDTH = 1920  # Imposta le dimensioni reali del tuo input
-IMAGE_HEIGHT = 1080
 
-def convert_to_vitpose_coco(input_path):
-    base_name = os.path.splitext(input_path)[0]
-    output_path = f"{base_name}_coco.json"
-    
-    # Mapping indici: da OpenPose BODY_25 a COCO 17 (ViTPose++)
-    # Ordine COCO: 0:Nose, 1:LEye, 2:REye, 3:LEar, 4:REar, 5:LShoulder, 
-    # 6:RShoulder, 7:LElbow, 8:RElbow, 9:LWrist, 10:RWrist, 11:LHip, 
-    # 12:RHip, 13:LKnee, 14:RKnee, 15:LAnkle, 16:RAnkle
-    mapping = [0, 15, 16, 17, 18, 5, 2, 6, 3, 7, 4, 12, 9, 13, 10, 14, 11]
+DEFAULT_PROJECT_ROOT = Path("/home/albertosco/HPE")
+DEFAULT_SOURCE_ROOT = "data/subset_swimxyz"
+DEFAULT_OUTPUT_ROOT = "data/input/subset_xyz"
+DEFAULT_IMAGE_WIDTH = 1920
+DEFAULT_IMAGE_HEIGHT = 1080
 
+EXPECTED_TRAILING_MISSING_HEADERS = [
+    "LEar.x",
+    "LEar.y",
+    "LEar.z",
+    "LBigToe.x",
+    "LBigToe.y",
+    "LBigToe.z",
+    "LSmallToe.x",
+    "LSmallToe.y",
+    "LSmallToe.z",
+    "LHeel.x",
+    "LHeel.y",
+    "LHeel.z",
+    "RBigToe.x",
+    "RBigToe.y",
+    "RBigToe.z",
+    "RSmallToe.x",
+    "RSmallToe.y",
+    "RSmallToe.z",
+    "RHeel.x",
+    "RHeel.y",
+    "RHeel.z",
+]
+
+BODY25_TO_COCO = [
+    ("Nose", "nose"),
+    ("LEye", "left_eye"),
+    ("REye", "right_eye"),
+    ("LEar", "left_ear"),
+    ("REar", "right_ear"),
+    ("LShoulder", "left_shoulder"),
+    ("RShoulder", "right_shoulder"),
+    ("LElbow", "left_elbow"),
+    ("RElbow", "right_elbow"),
+    ("LWrist", "left_wrist"),
+    ("RWrist", "right_wrist"),
+    ("LHip", "left_hip"),
+    ("RHip", "right_hip"),
+    ("LKnee", "left_knee"),
+    ("RKnee", "right_knee"),
+    ("LAnkle", "left_ankle"),
+    ("RAnkle", "right_ankle"),
+]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Reorganize the subset SwimXYZ dataset into data/input/subset_xyz and "
+            "optionally export COCO-style JSON sidecars for 2D COCO labels."
+        )
+    )
+    parser.add_argument("--project-root", default=str(DEFAULT_PROJECT_ROOT))
+    parser.add_argument("--source-root", default=DEFAULT_SOURCE_ROOT)
+    parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument("--image-width", type=int, default=DEFAULT_IMAGE_WIDTH)
+    parser.add_argument("--image-height", type=int, default=DEFAULT_IMAGE_HEIGHT)
+    parser.add_argument(
+        "--skip-json",
+        action="store_true",
+        help="Copy/reorganize files only, without generating *_coco.json sidecars.",
+    )
+    return parser.parse_args()
+
+
+def resolve_path(project_root: Path, value: str) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else (project_root / path).resolve()
+
+
+def parse_decimal(value: str | None) -> float | None:
+    if value is None or value == "":
+        return None
+    return float(value.replace(",", "."))
+
+
+def read_label_rows(labels_path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    lines = labels_path.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        raise ValueError(f"Label file is empty: {labels_path}")
+
+    header = [column.strip() for column in lines[0].split(";") if column.strip()]
+    rows: list[dict[str, str]] = []
+    for raw_line in lines[1:]:
+        if not raw_line.strip():
+            continue
+        values = [value.strip() for value in raw_line.split(";")]
+        if values and values[-1] == "":
+            values = values[:-1]
+
+        if len(values) < len(header):
+            missing_headers = header[len(values) :]
+            if missing_headers != EXPECTED_TRAILING_MISSING_HEADERS[: len(missing_headers)]:
+                raise ValueError(
+                    "Unexpected truncated row in "
+                    f"{labels_path}: missing headers {missing_headers}"
+                )
+            values.extend([""] * (len(header) - len(values)))
+        elif len(values) > len(header):
+            raise ValueError(
+                f"Invalid row length in {labels_path}: expected {len(header)}, got {len(values)}"
+            )
+
+        rows.append(dict(zip(header, values)))
+    return header, rows
+
+
+def build_label_output_path(output_root: Path, video_stem: str, label_filename: str) -> tuple[str, str, Path]:
+    stem_without_suffix, representation, label_kind = label_filename.rsplit("__", 2)
+    if stem_without_suffix != video_stem:
+        raise ValueError(
+            f"Label {label_filename} does not match video stem {video_stem}"
+        )
+
+    normalized_label_kind = label_kind.removesuffix(".txt")
+    output_dir = output_root / video_stem / representation
+    output_file = output_dir / f"{normalized_label_kind}_{representation}.txt"
+    return representation, normalized_label_kind, output_file
+
+
+def build_coco_json(
+    labels_path: Path,
+    image_width: int,
+    image_height: int,
+) -> dict:
+    _, rows = read_label_rows(labels_path)
     coco_data = {
         "images": [],
         "annotations": [],
-        "categories": [{"id": 1, "name": "person", "supercategory": "person"}]
+        "categories": [{"id": 1, "name": "person", "supercategory": "person"}],
     }
 
-    if not os.path.exists(input_path):
-        print(f"Errore: File {input_path} non trovato.")
-        return
+    for index, row in enumerate(rows, start=1):
+        image_name = f"{labels_path.stem}_{index - 1}.png"
+        coco_data["images"].append(
+            {
+                "id": index,
+                "file_name": image_name,
+                "width": image_width,
+                "height": image_height,
+            }
+        )
 
-    with open(input_path, 'r') as f:
-        lines = [l.strip() for l in f.readlines() if l.strip()]
+        keypoints: list[float] = []
+        x_coords: list[float] = []
+        y_coords: list[float] = []
+        for body25_name, _ in BODY25_TO_COCO:
+            x = parse_decimal(row.get(f"{body25_name}.x"))
+            y = parse_decimal(row.get(f"{body25_name}.y"))
+            score = parse_decimal(row.get(f"{body25_name}.z"))
+            if (
+                x is None
+                or y is None
+                or score is None
+                or math.isnan(x)
+                or math.isnan(y)
+                or math.isnan(score)
+                or score <= 0
+            ):
+                keypoints.extend([0.0, 0.0, 0.0])
+                continue
 
-    # Salto l'intestazione se la prima riga contiene testo (Nose)
-    start_idx = 1 if "Nose" in lines[0] else 0
-    data_lines = lines[start_idx:]
+            keypoints.extend([round(x, 2), round(y, 2), 2.0])
+            x_coords.append(float(x))
+            y_coords.append(float(y))
 
-    print(f"Rilevate {len(data_lines)} righe di dati. Elaborazione in corso...")
-
-    for i, line in enumerate(data_lines):
-        # 1. Parsing: virgola -> punto e split
-        raw_vals = line.replace(',', '.').split(';')
-        coords = [float(v) for v in raw_vals if v]
-        
-        # Raggruppo in triplette (x, y, confidence/z)
-        all_points = [coords[j:j+3] for j in range(0, len(coords), 3)]
-        
-        # 2. Generazione dati Immagine
-        img_id = i + 1
-        img_filename = f"{base_name}_{i}.png"
-        coco_data["images"].append({
-            "id": img_id,
-            "file_name": img_filename,
-            "width": IMAGE_WIDTH,
-            "height": IMAGE_HEIGHT
-        })
-
-        # 3. Mapping Keypoints e calcolo BBox
-        coco_kpts = []
-        x_coords, y_coords = [], []
-
-        for idx in mapping:
-            # Controllo se l'indice esiste (sicurezza per file troncati)
-            if idx < len(all_points):
-                x, y, conf = all_points[idx]
-                v = 2 if conf > 0 else 0 # 2=visibile, 0=non presente
-                coco_kpts.extend([round(x, 2), round(y, 2), v])
-                if v > 0:
-                    x_coords.append(x)
-                    y_coords.append(y)
-            else:
-                coco_kpts.extend([0, 0, 0])
-
-        # Calcolo Bounding Box [x, y, w, h]
         if x_coords and y_coords:
-            xmin, ymin = min(x_coords), min(y_coords)
-            w, h = max(x_coords) - xmin, max(y_coords) - ymin
-            # Aggiunta padding del 10% (standard per modelli top-down come ViTPose)
-            bbox = [round(xmin - w*0.05, 2), round(ymin - h*0.05, 2), 
-                    round(w * 1.1, 2), round(h * 1.1, 2)]
+            min_x = min(x_coords)
+            max_x = max(x_coords)
+            min_y = min(y_coords)
+            max_y = max(y_coords)
+            width = max_x - min_x
+            height = max_y - min_y
+            bbox = [
+                round(min_x - width * 0.05, 2),
+                round(min_y - height * 0.05, 2),
+                round(width * 1.1, 2),
+                round(height * 1.1, 2),
+            ]
         else:
-            bbox = [0, 0, 0, 0]
+            bbox = [0.0, 0.0, 0.0, 0.0]
 
-        # 4. Creazione Annotazione
-        coco_data["annotations"].append({
-            "id": img_id,
-            "image_id": img_id,
-            "category_id": 1,
-            "keypoints": coco_kpts,
-            "bbox": bbox,
-            "area": round(bbox[2] * bbox[3], 2),
-            "iscrowd": 0,
-            "num_keypoints": sum(1 for v in coco_kpts[2::3] if v > 0)
-        })
+        coco_data["annotations"].append(
+            {
+                "id": index,
+                "image_id": index,
+                "category_id": 1,
+                "keypoints": keypoints,
+                "bbox": bbox,
+                "area": round(bbox[2] * bbox[3], 2),
+                "iscrowd": 0,
+                "num_keypoints": sum(1 for visibility in keypoints[2::3] if visibility > 0),
+            }
+        )
 
-    # Salvataggio finale
-    with open(output_path, 'w') as out_f:
-        json.dump(coco_data, out_f, indent=4)
-    
-    print(f"File salvato con successo: {output_path}")
+    return coco_data
+
+
+def main() -> None:
+    args = parse_args()
+    project_root = resolve_path(Path.cwd(), args.project_root)
+    source_root = resolve_path(project_root, args.source_root)
+    output_root = resolve_path(project_root, args.output_root)
+    source_manifest = source_root / "manifest.json"
+
+    if not source_root.is_dir():
+        raise FileNotFoundError(f"Missing source dataset directory: {source_root}")
+    if not source_manifest.is_file():
+        raise FileNotFoundError(f"Missing source manifest: {source_manifest}")
+
+    payload = json.loads(source_manifest.read_text(encoding="utf-8"))
+    items = payload.get("items", [])
+    if not items:
+        raise RuntimeError(f"No dataset items found in manifest: {source_manifest}")
+
+    if output_root.exists():
+        shutil.rmtree(output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    generated_manifest: dict[str, list[dict[str, object]]] = {"items": []}
+    copied_labels = 0
+    generated_json = 0
+
+    for item in items:
+        video_file = item["video_file"]
+        video_stem = Path(video_file).stem
+        source_video_path = source_root / video_file
+        if not source_video_path.is_file():
+            raise FileNotFoundError(f"Missing source video file: {source_video_path}")
+
+        output_video_path = output_root / video_file
+        shutil.copy2(source_video_path, output_video_path)
+
+        manifest_item: dict[str, object] = {
+            "video_file": video_file,
+            "video_path": video_file,
+            "labels": [],
+        }
+
+        for label_filename in item.get("label_files", []):
+            source_label_path = source_root / label_filename
+            if not source_label_path.is_file():
+                raise FileNotFoundError(f"Missing source label file: {source_label_path}")
+
+            representation, label_kind, output_label_path = build_label_output_path(
+                output_root=output_root,
+                video_stem=video_stem,
+                label_filename=label_filename,
+            )
+            output_label_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_label_path, output_label_path)
+            copied_labels += 1
+
+            label_record: dict[str, str] = {
+                "representation": representation,
+                "label_kind": label_kind,
+                "source_file": label_filename,
+                "output_relative_path": str(output_label_path.relative_to(output_root)),
+            }
+
+            if not args.skip_json and representation == "COCO" and label_kind.startswith("2D_"):
+                json_path = output_label_path.with_name(f"{output_label_path.stem}_coco.json")
+                json_path.write_text(
+                    json.dumps(
+                        build_coco_json(
+                            labels_path=output_label_path,
+                            image_width=args.image_width,
+                            image_height=args.image_height,
+                        ),
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                label_record["json_relative_path"] = str(json_path.relative_to(output_root))
+                generated_json += 1
+
+            manifest_item["labels"].append(label_record)
+
+        generated_manifest["items"].append(manifest_item)
+
+    (output_root / "manifest.json").write_text(
+        json.dumps(generated_manifest, indent=2),
+        encoding="utf-8",
+    )
+
+    print("Converted subset SwimXYZ dataset.")
+    print(f"Source root: {source_root}")
+    print(f"Output root: {output_root}")
+    print(f"Videos copied: {len(items)}")
+    print(f"Label files copied: {copied_labels}")
+    print(f"COCO JSON files generated: {generated_json}")
+
 
 if __name__ == "__main__":
-    convert_to_vitpose_coco(INPUT_FILE)
+    main()
