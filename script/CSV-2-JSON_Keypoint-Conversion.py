@@ -6,10 +6,16 @@ import math
 import shutil
 from pathlib import Path
 
+# This script is the normalization step that reorganizes original SwimXYZ
+# folders into the intermediate layout expected by the training pipeline.
+# It copies videos and label files into a predictable structure and writes a
+# manifest so downstream dataset builders can discover entries without relying
+# on ad hoc path conventions.
+
 
 DEFAULT_PROJECT_ROOT = Path("/home/albertosco/HPE")
-DEFAULT_SOURCE_ROOT = "data/subset_swimxyz"
-DEFAULT_OUTPUT_ROOT = "data/input/subset_xyz"
+DEFAULT_SOURCE_ROOT = "data/input/subset_xyz"
+DEFAULT_OUTPUT_ROOT = "data/intermediate"
 DEFAULT_IMAGE_WIDTH = 1920
 DEFAULT_IMAGE_HEIGHT = 1080
 
@@ -37,6 +43,28 @@ EXPECTED_TRAILING_MISSING_HEADERS = [
     "RHeel.z",
 ]
 
+# SwimXYZ "COCO" files keep the BODY25 header but store only these 18 values.
+SWIMXYZ_COCO18_ORDER = [
+    "Nose",
+    "Neck",
+    "RShoulder",
+    "RElbow",
+    "RWrist",
+    "LShoulder",
+    "LElbow",
+    "LWrist",
+    "RHip",
+    "RKnee",
+    "RAnkle",
+    "LHip",
+    "LKnee",
+    "LAnkle",
+    "REye",
+    "REar",
+    "LEye",
+    "LEar",
+]
+
 BODY25_TO_COCO = [
     ("Nose", "nose"),
     ("LEye", "left_eye"),
@@ -61,8 +89,9 @@ BODY25_TO_COCO = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Reorganize the subset SwimXYZ dataset into data/input/subset_xyz and "
-            "optionally export COCO-style JSON sidecars for 2D COCO labels."
+            "Reorganize one or more SwimXYZ datasets from data/input/subset_xyz into "
+            "data/intermediate/<dataset>/_converted and optionally export COCO-style "
+            "JSON sidecars for 2D COCO labels."
         )
     )
     parser.add_argument("--project-root", default=str(DEFAULT_PROJECT_ROOT))
@@ -70,6 +99,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--image-width", type=int, default=DEFAULT_IMAGE_WIDTH)
     parser.add_argument("--image-height", type=int, default=DEFAULT_IMAGE_HEIGHT)
+    parser.add_argument(
+        "--flip-y",
+        dest="flip_y",
+        action="store_true",
+        default=True,
+        help="Convert SwimXYZ bottom-origin y coordinates to image top-origin coordinates.",
+    )
+    parser.add_argument(
+        "--no-flip-y",
+        dest="flip_y",
+        action="store_false",
+        help="Keep label y coordinates unchanged in generated JSON sidecars.",
+    )
     parser.add_argument(
         "--skip-json",
         action="store_true",
@@ -83,10 +125,45 @@ def resolve_path(project_root: Path, value: str) -> Path:
     return path if path.is_absolute() else (project_root / path).resolve()
 
 
+def iter_source_datasets(source_root: Path) -> list[Path]:
+    manifest_path = source_root / "manifest.json"
+    if manifest_path.is_file():
+        return [source_root]
+
+    datasets = sorted(
+        child for child in source_root.iterdir() if (child / "manifest.json").is_file()
+    )
+    if datasets:
+        return datasets
+
+    raise FileNotFoundError(
+        "No source dataset manifest found in "
+        f"{source_root}. Expected either {manifest_path} or child dataset directories."
+    )
+
+
+def build_output_root(intermediate_root: Path, dataset_root: Path) -> Path:
+    return intermediate_root / dataset_root.name / "_converted"
+
+
 def parse_decimal(value: str | None) -> float | None:
     if value is None or value == "":
         return None
     return float(value.replace(",", "."))
+
+
+def to_image_y(y: float, image_height: int, flip_y: bool) -> float:
+    return float(image_height) - float(y) if flip_y else float(y)
+
+
+def keypoint_row_from_values(keypoint_order: list[str], values: list[str]) -> dict[str, str]:
+    row = {}
+    for index, keypoint_name in enumerate(keypoint_order):
+        offset = index * 3
+        row[f"{keypoint_name}.x"] = values[offset]
+        row[f"{keypoint_name}.y"] = values[offset + 1]
+        row[f"{keypoint_name}.z"] = values[offset + 2]
+    return row
 
 
 def read_label_rows(labels_path: Path) -> tuple[list[str], list[dict[str, str]]]:
@@ -102,6 +179,10 @@ def read_label_rows(labels_path: Path) -> tuple[list[str], list[dict[str, str]]]
         values = [value.strip() for value in raw_line.split(";")]
         if values and values[-1] == "":
             values = values[:-1]
+
+        if len(values) == len(SWIMXYZ_COCO18_ORDER) * 3 and len(header) > len(values):
+            rows.append(keypoint_row_from_values(SWIMXYZ_COCO18_ORDER, values))
+            continue
 
         if len(values) < len(header):
             missing_headers = header[len(values) :]
@@ -137,6 +218,7 @@ def build_coco_json(
     labels_path: Path,
     image_width: int,
     image_height: int,
+    flip_y: bool,
 ) -> dict:
     _, rows = read_label_rows(labels_path)
     coco_data = {
@@ -175,9 +257,11 @@ def build_coco_json(
                 keypoints.extend([0.0, 0.0, 0.0])
                 continue
 
-            keypoints.extend([round(x, 2), round(y, 2), 2.0])
+            image_y = to_image_y(float(y), image_height, flip_y)
+            image_y = min(max(image_y, 0.0), float(image_height - 1))
+            keypoints.extend([round(x, 2), round(image_y, 2), 2.0])
             x_coords.append(float(x))
-            y_coords.append(float(y))
+            y_coords.append(image_y)
 
         if x_coords and y_coords:
             min_x = min(x_coords)
@@ -211,18 +295,11 @@ def build_coco_json(
     return coco_data
 
 
-def main() -> None:
-    args = parse_args()
-    project_root = resolve_path(Path.cwd(), args.project_root)
-    source_root = resolve_path(project_root, args.source_root)
-    output_root = resolve_path(project_root, args.output_root)
+def convert_dataset(args: argparse.Namespace, source_root: Path, output_root: Path) -> tuple[int, int, int]:
+    # The output manifest is the contract used later by the VitPose++ dataset
+    # preparer: each video keeps explicit references to the label variants that
+    # were copied under the intermediate tree.
     source_manifest = source_root / "manifest.json"
-
-    if not source_root.is_dir():
-        raise FileNotFoundError(f"Missing source dataset directory: {source_root}")
-    if not source_manifest.is_file():
-        raise FileNotFoundError(f"Missing source manifest: {source_manifest}")
-
     payload = json.loads(source_manifest.read_text(encoding="utf-8"))
     items = payload.get("items", [])
     if not items:
@@ -281,6 +358,7 @@ def main() -> None:
                             labels_path=output_label_path,
                             image_width=args.image_width,
                             image_height=args.image_height,
+                            flip_y=args.flip_y,
                         ),
                         indent=2,
                     ),
@@ -298,12 +376,38 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print("Converted subset SwimXYZ dataset.")
-    print(f"Source root: {source_root}")
-    print(f"Output root: {output_root}")
-    print(f"Videos copied: {len(items)}")
-    print(f"Label files copied: {copied_labels}")
-    print(f"COCO JSON files generated: {generated_json}")
+    return len(items), copied_labels, generated_json
+
+
+def main() -> None:
+    args = parse_args()
+    project_root = resolve_path(Path.cwd(), args.project_root)
+    source_root = resolve_path(project_root, args.source_root)
+    intermediate_root = resolve_path(project_root, args.output_root)
+
+    if not source_root.is_dir():
+        raise FileNotFoundError(f"Missing source dataset directory: {source_root}")
+
+    source_datasets = iter_source_datasets(source_root)
+    converted_roots = []
+
+    for dataset_root in source_datasets:
+        output_root = build_output_root(intermediate_root, dataset_root)
+        videos_count, copied_labels, generated_json = convert_dataset(
+            args=args,
+            source_root=dataset_root,
+            output_root=output_root,
+        )
+        converted_roots.append(output_root)
+        print(f"Converted SwimXYZ dataset: {dataset_root.name}")
+        print(f"Source root: {dataset_root}")
+        print(f"Output root: {output_root}")
+        print(f"Videos copied: {videos_count}")
+        print(f"Label files copied: {copied_labels}")
+        print(f"COCO JSON files generated: {generated_json}")
+
+    if len(converted_roots) > 1:
+        print(f"Datasets converted: {len(converted_roots)}")
 
 
 if __name__ == "__main__":

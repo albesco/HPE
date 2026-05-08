@@ -79,6 +79,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pose-checkpoint", default="models/pose/coco.pth")
     parser.add_argument("--output-dir", default="data/output/pipeline")
     parser.add_argument("--intermediate-dir", default="data/intermediate/pipeline")
+    parser.add_argument(
+        "--annotation-file",
+        default="",
+        help=(
+            "Optional COCO annotation file. If a matching bbox is present for an "
+            "image, use it directly and skip YOLO for that image."
+        ),
+    )
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--clean-intermediate", action="store_true")
@@ -142,6 +150,34 @@ def make_coco_json(image_path: Path, boxes_xywh: list[list[float]], output_path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(coco, indent=2))
     return len(annotations)
+
+
+def load_annotation_index(annotation_path: Optional[Path]) -> dict[str, list[list[float]]]:
+    if annotation_path is None:
+        return {}
+
+    payload = json.loads(annotation_path.read_text(encoding="utf-8"))
+    images_by_id = {item["id"]: item["file_name"] for item in payload.get("images", [])}
+    boxes_by_name: dict[str, list[list[float]]] = {}
+
+    for annotation in payload.get("annotations", []):
+        image_name = images_by_id.get(annotation.get("image_id"))
+        bbox = annotation.get("bbox")
+        if image_name is None or not isinstance(bbox, list) or len(bbox) != 4:
+            continue
+        x, y, w, h = [float(value) for value in bbox]
+        if w <= 0 or h <= 0:
+            continue
+        boxes_by_name.setdefault(Path(image_name).name, []).append([x, y, w, h])
+
+    return boxes_by_name
+
+
+def annotation_boxes_for_image(
+    boxes_by_name: dict[str, list[list[float]]],
+    image_path: Path,
+) -> list[list[float]]:
+    return [box[:] for box in boxes_by_name.get(image_path.name, [])]
 
 
 def detect_people(model: YOLO, image_path: Path, conf: float):
@@ -263,15 +299,27 @@ def write_csv(csv_path: Path, rows: list[str], include_frame: bool = False) -> N
 
 def process_image(
     image_path: Path,
-    yolo_model: YOLO,
+    yolo_model: Optional[YOLO],
     pose_model,
     args: argparse.Namespace,
     paths: dict[str, Path],
+    annotation_boxes_by_name: dict[str, list[list[float]]],
     frame_index: Optional[int] = None,
 ) -> int:
     coco_json = paths["intermediate_dir"] / f"{image_path.stem}_yolo_coco.json"
-    boxes_xyxy = detect_people(yolo_model, image_path, args.conf)
-    boxes_xywh = boxes_xyxy_to_xywh(boxes_xyxy)
+    boxes_xywh = annotation_boxes_for_image(annotation_boxes_by_name, image_path)
+    if boxes_xywh:
+        boxes_xyxy = np.array(
+            [[x, y, x + w, y + h] for x, y, w, h in boxes_xywh],
+            dtype=np.float32,
+        )
+    else:
+        if yolo_model is None:
+            raise RuntimeError(
+                "YOLO model is required when no bounding box is available in the annotation file."
+            )
+        boxes_xyxy = detect_people(yolo_model, image_path, args.conf)
+        boxes_xywh = boxes_xyxy_to_xywh(boxes_xyxy)
     count = make_coco_json(image_path, boxes_xywh, coco_json)
 
     output_image = paths["output_dir"] / image_path.name
@@ -344,10 +392,11 @@ def build_video(frames_dir: Path, output_video: Path, fps: float) -> None:
 
 def process_video(
     video_path: Path,
-    yolo_model: YOLO,
+    yolo_model: Optional[YOLO],
     pose_model,
     args: argparse.Namespace,
     paths: dict[str, Path],
+    annotation_boxes_by_name: dict[str, list[list[float]]],
 ) -> None:
     work_dir = paths["intermediate_dir"] / video_path.stem
     frames_dir = work_dir / "frames"
@@ -370,6 +419,7 @@ def process_video(
             pose_model,
             args,
             frame_paths,
+            annotation_boxes_by_name,
             frame_index=int(frame_path.stem.split("_")[-1]),
         )
         if count:
@@ -401,6 +451,7 @@ def main() -> None:
     args = parse_args()
     project_root = Path(args.project_root).expanduser().resolve()
     input_path = resolve_path(project_root, args.input)
+    annotation_path = resolve_path(project_root, args.annotation_file) if args.annotation_file else None
     paths = {
         "output_dir": resolve_path(project_root, args.output_dir),
         "intermediate_dir": resolve_path(project_root, args.intermediate_dir),
@@ -410,25 +461,57 @@ def main() -> None:
         "yolo_model": resolve_path(project_root, args.yolo_model),
     }
 
-    ensure_paths([input_path, paths["pose_config"], paths["pose_checkpoint"], paths["vitpose_root"], paths["yolo_model"]])
+    required_paths = [input_path, paths["pose_config"], paths["pose_checkpoint"], paths["vitpose_root"]]
+    if annotation_path is not None:
+        required_paths.append(annotation_path)
+    ensure_paths(required_paths)
     paths["output_dir"].mkdir(parents=True, exist_ok=True)
     paths["intermediate_dir"].mkdir(parents=True, exist_ok=True)
 
-    yolo_model = YOLO(str(paths["yolo_model"]))
+    annotation_boxes_by_name = load_annotation_index(annotation_path)
+    suffix = input_path.suffix.lower()
+    needs_yolo = annotation_path is None
+    if suffix in IMAGE_EXTENSIONS:
+        needs_yolo = not annotation_boxes_for_image(annotation_boxes_by_name, input_path)
+    else:
+        # Video frames extracted on the fly usually do not match dataset annotation names.
+        needs_yolo = True
+
+    yolo_model = None
+    if needs_yolo:
+        ensure_paths([paths["yolo_model"]])
+        yolo_model = YOLO(str(paths["yolo_model"]))
     pose_model = load_pose_model(
         paths["vitpose_root"],
         paths["pose_config"],
         paths["pose_checkpoint"],
         args.device,
     )
-    suffix = input_path.suffix.lower()
 
     if suffix in IMAGE_EXTENSIONS:
-        boxes = process_image(input_path, yolo_model, pose_model, args, paths)
-        print(f"YOLO boxes: {boxes}")
+        boxes = process_image(
+            input_path,
+            yolo_model,
+            pose_model,
+            args,
+            paths,
+            annotation_boxes_by_name,
+        )
+        print(f"Persons processed: {boxes}")
+        if annotation_boxes_for_image(annotation_boxes_by_name, input_path):
+            print("Bounding boxes source: annotation file")
+        else:
+            print("Bounding boxes source: YOLO detection")
         print(f"Output directory: {paths['output_dir']}")
     elif suffix in VIDEO_EXTENSIONS:
-        process_video(input_path, yolo_model, pose_model, args, paths)
+        process_video(
+            input_path,
+            yolo_model,
+            pose_model,
+            args,
+            paths,
+            annotation_boxes_by_name,
+        )
     else:
         raise ValueError(f"Unsupported input extension: {input_path.suffix}")
 

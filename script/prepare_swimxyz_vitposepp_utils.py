@@ -9,11 +9,22 @@ from pathlib import Path
 
 import cv2
 
+# Shared utilities for the consolidated SwimXYZ -> VitPose++ preparation flow.
+# This module is the common implementation layer for:
+# - parsing SwimXYZ label rows
+# - mapping the selected SwimXYZ representation to COCO17
+# - computing bbox, visibility and overlay images
+# - split management and JSON export
+#
+# The active VitPose++ pipeline imports these helpers rather than
+# reimplementing them, so behavior stays aligned across dataset generation and
+# verification scripts.
+
 
 # Default constants for in-script usage.
 DEFAULT_PROJECT_ROOT = Path("/home/albertosco/HPE")
-DEFAULT_DATASET_ROOT = "data/input/subset_xyz"
-DEFAULT_OUTPUT_ROOT = "data/dataset/input/subset_xyz_vitpose"
+DEFAULT_DATASET_ROOT = "data/intermediate"
+DEFAULT_OUTPUT_ROOT = ""
 DEFAULT_BASE_CONFIG = (
     "src/vitpose_base/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/"
     "ViTPose_huge_coco_256x192.py"
@@ -42,6 +53,28 @@ EXPECTED_TRAILING_MISSING_HEADERS = [
     "RHeel.x",
     "RHeel.y",
     "RHeel.z",
+]
+
+# SwimXYZ "COCO" files keep the BODY25 header but store only these 18 values.
+SWIMXYZ_COCO18_ORDER = [
+    "Nose",
+    "Neck",
+    "RShoulder",
+    "RElbow",
+    "RWrist",
+    "LShoulder",
+    "LElbow",
+    "LWrist",
+    "RHip",
+    "RKnee",
+    "RAnkle",
+    "LHip",
+    "LKnee",
+    "LAnkle",
+    "REye",
+    "REar",
+    "LEye",
+    "LEar",
 ]
 
 BODY25_TO_COCO = [
@@ -86,6 +119,29 @@ COCO_SKELETON = [
     [5, 7],
 ]
 
+OVERLAY_KEYPOINT_COLORS = {
+    "nose": (255, 200, 0),
+    "left_eye": (0, 200, 255),
+    "right_eye": (255, 150, 0),
+    "left_ear": (0, 180, 255),
+    "right_ear": (255, 120, 0),
+    "left_shoulder": (0, 255, 0),
+    "right_shoulder": (0, 128, 255),
+    "left_elbow": (0, 220, 0),
+    "right_elbow": (0, 100, 255),
+    "left_wrist": (0, 190, 0),
+    "right_wrist": (0, 80, 255),
+    "left_hip": (0, 255, 80),
+    "right_hip": (80, 140, 255),
+    "left_knee": (0, 255, 140),
+    "right_knee": (120, 160, 255),
+    "left_ankle": (0, 255, 200),
+    "right_ankle": (160, 180, 255),
+}
+OVERLAY_SKELETON_COLOR = (255, 255, 255)
+ANOMALOUS_BBOX_CENTER_DISTANCE_RATIO = 1.5
+ANOMALOUS_BBOX_IOU_THRESHOLD = 0.1
+
 
 @dataclass
 class DatasetEntry:
@@ -108,7 +164,7 @@ class Sample:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Prepare a SwimXYZ dataset in COCO format for VitPose training."
+        description="Prepare a SwimXYZ dataset in COCO format for the consolidated pipeline."
     )
     parser.add_argument("--project-root", default=str(DEFAULT_PROJECT_ROOT))
     parser.add_argument(
@@ -135,6 +191,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-frames-per-video", type=int, default=0)
     parser.add_argument("--bbox-padding-ratio", type=float, default=0.05)
     parser.add_argument("--min-visible-keypoints", type=int, default=4)
+    parser.add_argument(
+        "--flip-y",
+        dest="flip_y",
+        action="store_true",
+        default=True,
+        help="Convert SwimXYZ bottom-origin y coordinates to image top-origin coordinates.",
+    )
+    parser.add_argument(
+        "--no-flip-y",
+        dest="flip_y",
+        action="store_false",
+        help="Keep label y coordinates unchanged.",
+    )
     parser.add_argument("--samples-per-gpu", type=int, default=8)
     parser.add_argument("--workers-per-gpu", type=int, default=2)
     parser.add_argument("--total-epochs", type=int, default=30)
@@ -145,6 +214,48 @@ def parse_args() -> argparse.Namespace:
 def resolve_path(project_root: Path, value: str) -> Path:
     path = Path(value).expanduser()
     return path if path.is_absolute() else (project_root / path).resolve()
+
+
+def dataset_name_from_converted_root(dataset_root: Path) -> str:
+    if dataset_root.name == "_converted":
+        return dataset_root.parent.name
+    if dataset_root.name.endswith("_converted"):
+        return dataset_root.name.removesuffix("_converted")
+    return dataset_root.name
+
+
+def iter_converted_dataset_roots(dataset_root: Path) -> list[Path]:
+    manifest_path = dataset_root / "manifest.json"
+    if manifest_path.is_file():
+        return [dataset_root]
+
+    nested_roots = sorted(
+        child / "_converted"
+        for child in dataset_root.iterdir()
+        if child.is_dir() and (child / "_converted" / "manifest.json").is_file()
+    )
+    if nested_roots:
+        return nested_roots
+
+    flat_roots = sorted(
+        child for child in dataset_root.iterdir() if (child / "manifest.json").is_file()
+    )
+    if flat_roots:
+        return flat_roots
+
+    raise FileNotFoundError(
+        "No converted dataset manifest found in "
+        f"{dataset_root}. Expected either a manifest in place, child '_converted' "
+        "directories, or legacy '*_converted' directories."
+    )
+
+
+def build_train_output_root(project_root: Path, dataset_root: Path, output_root_value: str) -> Path:
+    if output_root_value:
+        return resolve_path(project_root, output_root_value)
+
+    dataset_name = dataset_name_from_converted_root(dataset_root)
+    return (project_root / "data" / "intermediate" / dataset_name / "_train_vitpose").resolve()
 
 
 def build_label_filename(
@@ -254,6 +365,10 @@ def read_label_rows(labels_path: Path) -> list[dict[str, str]]:
         if values and values[-1] == "":
             values = values[:-1]
 
+        if len(values) == len(SWIMXYZ_COCO18_ORDER) * 3 and len(header) > len(values):
+            rows.append(keypoint_row_from_values(SWIMXYZ_COCO18_ORDER, values))
+            continue
+
         if len(values) < len(header):
             missing_headers = header[len(values):]
             if missing_headers != EXPECTED_TRAILING_MISSING_HEADERS[: len(missing_headers)]:
@@ -274,10 +389,24 @@ def read_label_rows(labels_path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def keypoint_row_from_values(keypoint_order: list[str], values: list[str]) -> dict[str, str]:
+    row = {}
+    for index, keypoint_name in enumerate(keypoint_order):
+        offset = index * 3
+        row[f"{keypoint_name}.x"] = values[offset]
+        row[f"{keypoint_name}.y"] = values[offset + 1]
+        row[f"{keypoint_name}.z"] = values[offset + 2]
+    return row
+
+
 def parse_decimal(value: str | None) -> float | None:
     if value is None or value == "":
         return None
     return float(value.replace(",", "."))
+
+
+def to_image_y(y: float, height: int, flip_y: bool) -> float:
+    return float(height) - float(y) if flip_y else float(y)
 
 
 def build_keypoints_and_bbox(
@@ -286,30 +415,37 @@ def build_keypoints_and_bbox(
     height: int,
     bbox_padding_ratio: float,
     min_visible_keypoints: int,
+    flip_y: bool,
 ) -> tuple[list[float], int, list[float], float] | None:
+    # SwimXYZ stores x,y,z triples, but in our consolidated workflow z is not a
+    # confidence score. Visibility is reconstructed from the horizontal image
+    # position so that border-clamped points can be excluded consistently.
     keypoints: list[float] = []
     visible_points: list[tuple[float, float]] = []
 
     for body25_name, _ in BODY25_TO_COCO:
         x = parse_decimal(row.get(f"{body25_name}.x"))
         y = parse_decimal(row.get(f"{body25_name}.y"))
-        score = parse_decimal(row.get(f"{body25_name}.z"))
 
-        if (
-            x is None
-            or y is None
-            or score is None
-            or math.isnan(x)
-            or math.isnan(y)
-            or math.isnan(score)
-            or score <= 0
-        ):
+        # SwimXYZ provides x,y,z where z is a spatial coordinate (Blender 3D),
+        # not a confidence/visibility score. Visibility is derived from x only:
+        # - if x == 0 or x == max (image boundary), v = 0
+        # - otherwise (0 < x < max), v = 2
+        if x is None or y is None or math.isnan(x) or math.isnan(y):
             keypoints.extend([0.0, 0.0, 0.0])
             continue
 
         clipped_x = min(max(float(x), 0.0), float(width - 1))
-        clipped_y = min(max(float(y), 0.0), float(height - 1))
-        keypoints.extend([clipped_x, clipped_y, 2.0])
+        image_y = to_image_y(float(y), height, flip_y)
+        clipped_y = min(max(image_y, 0.0), float(height - 1))
+
+        max_x = float(width - 1)
+        v = 0.0 if clipped_x <= 0.0 or clipped_x >= max_x else 2.0
+        if v == 0.0:
+            keypoints.extend([0.0, 0.0, 0.0])
+            continue
+
+        keypoints.extend([clipped_x, clipped_y, v])
         visible_points.append((clipped_x, clipped_y))
 
     if len(visible_points) < min_visible_keypoints:
@@ -332,6 +468,55 @@ def build_keypoints_and_bbox(
     return keypoints, len(visible_points), bbox, area
 
 
+def bbox_iou(first_bbox: list[float], second_bbox: list[float]) -> float:
+    first_x, first_y, first_w, first_h = first_bbox
+    second_x, second_y, second_w, second_h = second_bbox
+
+    first_x2 = first_x + first_w
+    first_y2 = first_y + first_h
+    second_x2 = second_x + second_w
+    second_y2 = second_y + second_h
+
+    inter_x1 = max(first_x, second_x)
+    inter_y1 = max(first_y, second_y)
+    inter_x2 = min(first_x2, second_x2)
+    inter_y2 = min(first_y2, second_y2)
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+    union_area = (first_w * first_h) + (second_w * second_h) - inter_area
+    if union_area <= 0:
+        return 0.0
+    return inter_area / union_area
+
+
+def detect_anomalous_bbox_shift(
+    previous_bbox: list[float] | None,
+    current_bbox: list[float],
+) -> bool:
+    # The goal here is not to reject every fast swimmer movement. We only flag
+    # cases where the bbox suddenly jumps far away from the previous one and at
+    # the same time stops overlapping it in any meaningful way.
+    if previous_bbox is None:
+        return False
+
+    prev_x, prev_y, prev_w, prev_h = previous_bbox
+    curr_x, curr_y, curr_w, curr_h = current_bbox
+    prev_center_x = prev_x + (prev_w / 2.0)
+    prev_center_y = prev_y + (prev_h / 2.0)
+    curr_center_x = curr_x + (curr_w / 2.0)
+    curr_center_y = curr_y + (curr_h / 2.0)
+    center_distance = math.hypot(curr_center_x - prev_center_x, curr_center_y - prev_center_y)
+    previous_diagonal = math.hypot(prev_w, prev_h)
+    if previous_diagonal <= 0:
+        return False
+
+    return (
+        center_distance > (previous_diagonal * ANOMALOUS_BBOX_CENTER_DISTANCE_RATIO)
+        and bbox_iou(previous_bbox, current_bbox) < ANOMALOUS_BBOX_IOU_THRESHOLD
+    )
+
+
 def extract_samples_from_entry(
     entry: DatasetEntry,
     images_root: Path,
@@ -339,6 +524,7 @@ def extract_samples_from_entry(
     max_frames_per_video: int,
     bbox_padding_ratio: float,
     min_visible_keypoints: int,
+    flip_y: bool,
 ) -> list[Sample]:
     label_rows = read_label_rows(entry.labels_path)
     capture = cv2.VideoCapture(str(entry.video_path))
@@ -371,6 +557,7 @@ def extract_samples_from_entry(
             height=height,
             bbox_padding_ratio=bbox_padding_ratio,
             min_visible_keypoints=min_visible_keypoints,
+            flip_y=flip_y,
         )
         if prepared is not None:
             keypoints, num_keypoints, bbox, area = prepared
@@ -452,7 +639,7 @@ def build_coco_json(samples: list[Sample], img_prefix: str) -> dict:
         images.append(
             {
                 "id": image_id,
-                "file_name": f"{img_prefix}/{sample.image_path.name}",
+                "file_name": sample.image_path.name,
                 "width": sample.width,
                 "height": sample.height,
             }
@@ -495,6 +682,66 @@ def move_split_images(samples: list[Sample], destination_dir: Path) -> None:
         sample.image_path = target
 
 
+def overlay_output_path(image_path: Path) -> Path:
+    return image_path.with_name(f"{image_path.stem}_with-KP{image_path.suffix}")
+
+
+def draw_sample_overlay(image, sample: Sample) -> None:
+    # Overlay files are generated next to train/val/test images so we can audit
+    # the final dataset exactly as it is consumed by VitPose++.
+    keypoint_names = [name for _, name in BODY25_TO_COCO]
+
+    for start_idx, end_idx in COCO_SKELETON:
+        start_offset = (start_idx - 1) * 3
+        end_offset = (end_idx - 1) * 3
+        start_visibility = sample.keypoints[start_offset + 2]
+        end_visibility = sample.keypoints[end_offset + 2]
+        if start_visibility <= 0 or end_visibility <= 0:
+            continue
+        cv2.line(
+            image,
+            (
+                int(round(sample.keypoints[start_offset])),
+                int(round(sample.keypoints[start_offset + 1])),
+            ),
+            (
+                int(round(sample.keypoints[end_offset])),
+                int(round(sample.keypoints[end_offset + 1])),
+            ),
+            OVERLAY_SKELETON_COLOR,
+            2,
+            lineType=cv2.LINE_AA,
+        )
+
+    for index, keypoint_name in enumerate(keypoint_names):
+        offset = index * 3
+        x = sample.keypoints[offset]
+        y = sample.keypoints[offset + 1]
+        visibility = sample.keypoints[offset + 2]
+        if visibility <= 0:
+            continue
+        cv2.circle(
+            image,
+            (int(round(x)), int(round(y))),
+            4,
+            OVERLAY_KEYPOINT_COLORS[keypoint_name],
+            thickness=-1,
+            lineType=cv2.LINE_AA,
+        )
+
+
+def write_split_overlay_images(samples: list[Sample]) -> None:
+    for sample in samples:
+        image = cv2.imread(str(sample.image_path))
+        if image is None:
+            raise RuntimeError(f"Unable to read split image for overlay: {sample.image_path}")
+        draw_sample_overlay(image, sample)
+        overlay_path = overlay_output_path(sample.image_path)
+        ok = cv2.imwrite(str(overlay_path), image)
+        if not ok:
+            raise RuntimeError(f"Unable to write overlay image: {overlay_path}")
+
+
 def write_training_config(
     output_path: Path,
     dataset_root: Path,
@@ -515,33 +762,40 @@ work_dir = '{work_dir.as_posix()}'
 total_epochs = {total_epochs}
 evaluation = dict(interval={val_interval}, metric='mAP', save_best='AP')
 
-    data = dict(
-        samples_per_gpu={samples_per_gpu},
-        workers_per_gpu={workers_per_gpu},
-        val_dataloader=dict(samples_per_gpu={max(1, samples_per_gpu)}),
-        test_dataloader=dict(samples_per_gpu={max(1, samples_per_gpu)}),
+data = dict(
+    samples_per_gpu={samples_per_gpu},
+    workers_per_gpu={workers_per_gpu},
+    val_dataloader=dict(samples_per_gpu={max(1, samples_per_gpu)}),
+    test_dataloader=dict(samples_per_gpu={max(1, samples_per_gpu)}),
     train=dict(
         ann_file=f'{{data_root}}/annotations/person_keypoints_train.json',
         img_prefix=f'{{data_root}}/train2017/',
+        data_cfg=dict(use_gt_bbox=True, bbox_file=''),
     ),
     val=dict(
         ann_file=f'{{data_root}}/annotations/person_keypoints_val.json',
         img_prefix=f'{{data_root}}/val2017/',
+        data_cfg=dict(use_gt_bbox=True, bbox_file=''),
     ),
     test=dict(
         ann_file=f'{{data_root}}/annotations/person_keypoints_test.json',
         img_prefix=f'{{data_root}}/test2017/',
+        data_cfg=dict(use_gt_bbox=True, bbox_file=''),
     ),
 )
 """
     output_path.write_text(config_text, encoding="utf-8")
 
 
-def main() -> None:
-    args = parse_args()
-    project_root = resolve_path(Path.cwd(), args.project_root)
-    dataset_entries = parse_dataset_entries(args, project_root)
-    output_root = resolve_path(project_root, args.output_root)
+def prepare_dataset(
+    args: argparse.Namespace,
+    project_root: Path,
+    dataset_root: Path,
+    output_root: Path,
+) -> None:
+    scoped_args = argparse.Namespace(**vars(args))
+    scoped_args.dataset_root = str(dataset_root)
+    dataset_entries = parse_dataset_entries(scoped_args, project_root)
     base_config = resolve_path(project_root, args.base_config)
     pretrained_checkpoint = resolve_path(project_root, args.pretrained_checkpoint)
     work_dir = resolve_path(project_root, args.work_dir)
@@ -572,6 +826,7 @@ def main() -> None:
                 max_frames_per_video=args.max_frames_per_video,
                 bbox_padding_ratio=args.bbox_padding_ratio,
                 min_visible_keypoints=args.min_visible_keypoints,
+                flip_y=args.flip_y,
             )
         )
 
@@ -587,6 +842,9 @@ def main() -> None:
     move_split_images(train_samples, train_dir)
     move_split_images(val_samples, val_dir)
     move_split_images(test_samples, test_dir)
+    write_split_overlay_images(train_samples)
+    write_split_overlay_images(val_samples)
+    write_split_overlay_images(test_samples)
 
     annotations_dir.mkdir(parents=True, exist_ok=True)
     (annotations_dir / "person_keypoints_train.json").write_text(
@@ -616,7 +874,11 @@ def main() -> None:
 
     shutil.rmtree(images_root, ignore_errors=True)
 
-    print("Prepared SwimXYZ dataset for VitPose training.")
+    print(
+        "Prepared SwimXYZ dataset with shared consolidated utilities: "
+        f"{dataset_name_from_converted_root(dataset_root)}"
+    )
+    print(f"Converted dataset root: {dataset_root}")
     print(f"Dataset root: {output_root}")
     print(f"Train samples: {len(train_samples)}")
     print(f"Val samples: {len(val_samples)}")
@@ -628,6 +890,31 @@ def main() -> None:
         f"{(project_root / 'src/vitpose_base/tools/train.py').as_posix()} "
         f"{generated_config.as_posix()}"
     )
+
+
+def main() -> None:
+    args = parse_args()
+    project_root = resolve_path(Path.cwd(), args.project_root)
+    dataset_root = resolve_path(project_root, args.dataset_root)
+
+    if args.dataset_entry:
+        output_root = build_train_output_root(project_root, dataset_root, args.output_root)
+        prepare_dataset(args, project_root, dataset_root, output_root)
+        return
+
+    dataset_roots = iter_converted_dataset_roots(dataset_root)
+    if len(dataset_roots) > 1 and args.output_root:
+        raise ValueError(
+            "When processing multiple converted datasets, do not pass a shared "
+            "--output-root. Let the script infer one '_train_vitpose' directory per dataset."
+        )
+    for current_dataset_root in dataset_roots:
+        output_root = build_train_output_root(
+            project_root,
+            current_dataset_root,
+            args.output_root,
+        )
+        prepare_dataset(args, project_root, current_dataset_root, output_root)
 
 
 if __name__ == "__main__":

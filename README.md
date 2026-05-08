@@ -1,8 +1,7 @@
-# HPE ViTPose Pipeline
+# HPE VitPose++ Dataset Pipeline
 
-Pipeline per Human Pose Estimation con YOLO per la detection delle persone e ViTPose-H/ViTPose++ per la stima dei keypoint.
-
-Il checkpoint YOLO predefinito del workspace e' `models/detection/yolo26x.pt`.
+Pipeline consolidata per preparare dataset di addestramento SwimXYZ -> VitPose++
+single-head.
 
 ## Struttura
 
@@ -64,65 +63,99 @@ pip install mmcv-full==1.3.17 \
 
 Il file `environment.example.yml` documenta la base Conda/Pip, ma PyTorch CUDA e MMCV vanno installati con i comandi sopra.
 
-## Smoke Test
+## Script attivi
 
-```bash
-python script/smoke_test.py
-```
-
-## Pipeline Immagine
-
-```bash
-python script/run_pipeline.py \
-  --input data/input/bus.jpg \
-  --output-dir data/output/pipeline_bus
-```
-
-Output:
+La root `script/` contiene solo gli script della pipeline consolidata:
 
 ```text
-data/output/pipeline_bus/bus.jpg
-data/output/pipeline_bus/bus.csv
+CSV-2-JSON_Keypoint-Conversion.py
+kp_check_swimxyz_video_frames.py
+prepare_swimxyz_vitposepp_utils.py
+prepare_swimxyz_vitposepp_single_head.py
+prepare_swimxyz_vitposepp_train.py
 ```
 
-## Pipeline Video
+Gli script storici o sperimentali sono stati spostati in `script/old_trials/`.
+
+## Verifica ambiente
 
 ```bash
-python script/run_pipeline.py \
-  --input data/input/video.mp4 \
-  --output-dir data/output/pipeline_video
+python script/old_trials/smoke_test.py
 ```
 
-Output:
-
-```text
-data/output/pipeline_video/video_pose.mp4
-data/output/pipeline_video/video_pose.csv
-```
-
-Per video `.webm`, lo script accetta il formato se OpenCV sul server riesce a leggerlo.
-
-## CSV Keypoint
-
-I CSV usano separatore `;` e virgola decimale. Le coordinate sono riferite all'immagine o frame originale, con origine nel punto in alto a sinistra.
-
-Il modello COCO produce 17 keypoint. Lo script esporta il formato BODY_25 richiesto, calcolando `Neck` e `MidHip` come medie, mentre i keypoint di dita/piedi non disponibili nel modello COCO restano vuoti.
-
-## Intermedi
-
-I file intermedi sono mantenuti di default in:
-
-```text
-data/intermediate/pipeline/
-```
-
-Per eliminarli a fine elaborazione:
+## Conversione in `intermediate`
 
 ```bash
-python script/run_pipeline.py \
-  --input data/input/bus.jpg \
-  --output-dir data/output/pipeline_bus \
-  --clean-intermediate
+conda run -n vitpose python script/CSV-2-JSON_Keypoint-Conversion.py \
+  --source-root data/input/subset_xyz \
+  --output-root data/intermediate
+```
+
+Questo step:
+
+- copia video e label nella struttura `data/intermediate/<dataset>/_converted`
+- genera il `manifest.json` usato dagli step successivi
+- genera i sidecar `*_coco.json` per le label `COCO/2D`
+
+## Preparazione dataset VitPose++
+
+```bash
+conda run -n vitpose python script/prepare_swimxyz_vitposepp_train.py \
+  --dataset-root data/intermediate
+```
+
+Per un singolo video si può usare:
+
+```bash
+conda run -n vitpose python script/prepare_swimxyz_vitposepp_train.py \
+  --dataset-entry "path/video.webm::path/label__COCO__2D_cam.txt" \
+  --output-root data/intermediate/<dataset>/<video>_train_vitposepp_swap_ears
+```
+
+L'output contiene:
+
+- `train2017`, `val2017`, `test2017`
+- i corrispondenti overlay `*_with-KP.jpg`
+- `annotations/person_keypoints_{train,val,test}.json`
+- `annotations/dataset_exceptions.log`
+- `reports/preparation_report.json`
+- `generated_configs/...py`
+
+## Logica consolidata
+
+- inversione dell'asse `Y` da SwimXYZ a coordinate immagine
+- scambio `LEye/REye` e `LEar/REar` prima della ricodifica COCO17
+- `z` non interpretata come confidence
+- visibility ricostruita con:
+  `v = 0` se `x == 0` oppure `x == max_x`
+  `v = 2` se `0 < x < max_x`
+- logging dei salti anomali della bounding box
+- overlay finali con soli skeleton e punti, senza etichette
+
+Il dettaglio operativo aggiornato è documentato in `note.md`.
+
+## Verifica visiva
+
+Per controllare frame singoli o l'intero video:
+
+```bash
+conda run -n vitpose python script/kp_check_swimxyz_video_frames.py \
+  --video path/video.webm \
+  --labels path/label__COCO__2D_cam.txt \
+  --frames 10 20 30 \
+  --output-dir data/intermediate/kp_check_example \
+  --flip-y
+```
+
+Oppure:
+
+```bash
+conda run -n vitpose python script/kp_check_swimxyz_video_frames.py \
+  --video path/video.webm \
+  --labels path/label__COCO__2D_cam.txt \
+  --all-frames \
+  --output-dir data/intermediate/kp_check_full_video \
+  --flip-y
 ```
 
 ## Note Git
