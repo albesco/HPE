@@ -108,6 +108,10 @@ def train_model(model,
     train_loader_cfg = dict(loader_cfg, **cfg.data.get('train_dataloader', {}))
 
     data_loaders = [build_dataloader(ds, **train_loader_cfg) for ds in dataset]
+    train_dataloader = data_loaders[0]
+    train_dataset = dataset[0]
+    train_iters_per_epoch = len(train_dataloader)
+    total_train_iters = train_iters_per_epoch * cfg.total_epochs
 
     # determine whether use adversarial training precess or not
     use_adverserial_train = cfg.get('use_adversarial_train', False)
@@ -192,6 +196,38 @@ def train_model(model,
         val_dataloader = build_dataloader(val_dataset, **dataloader_setting)
         eval_hook = DistEvalHook if distributed else EvalHook
         runner.register_hook(eval_hook(val_dataloader, **eval_cfg))
+    else:
+        val_dataset = None
+        val_dataloader = None
+
+    checkpoint_interval = None
+    if cfg.get('checkpoint_config', None) is not None:
+        checkpoint_interval = cfg.checkpoint_config.get('interval')
+    eval_interval = None
+    if validate and cfg.get('evaluation', None) is not None:
+        eval_interval = cfg.evaluation.get('interval')
+
+    logger.info(
+        'Training progress summary: '
+        f'train_samples={len(train_dataset)}, '
+        f'batch_size={train_loader_cfg.get("samples_per_gpu")}, '
+        f'workers={train_loader_cfg.get("workers_per_gpu")}, '
+        f'iters_per_epoch={train_iters_per_epoch}, '
+        f'total_epochs={cfg.total_epochs}, '
+        f'total_train_iters={total_train_iters}')
+    if validate and val_dataset is not None and val_dataloader is not None:
+        logger.info(
+            'Validation progress summary: '
+            f'val_samples={len(val_dataset)}, '
+            f'val_batch_size={dataloader_setting.get("samples_per_gpu")}, '
+            f'val_iters={len(val_dataloader)}, '
+            f'eval_interval={eval_interval}')
+    logger.info(
+        'Checkpoint summary: '
+        f'work_dir={cfg.work_dir}, '
+        f'checkpoint_interval={checkpoint_interval}, '
+        f'resume_from={cfg.get("resume_from", None)}, '
+        f'load_from={cfg.get("load_from", None)}')
 
     if cfg.resume_from:
         runner.resume(cfg.resume_from)

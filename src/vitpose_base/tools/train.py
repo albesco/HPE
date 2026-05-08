@@ -26,6 +26,11 @@ def parse_args():
     parser.add_argument(
         '--resume-from', help='the checkpoint file to resume from')
     parser.add_argument(
+        '--log-interval',
+        type=int,
+        default=None,
+        help='override log_config.interval to control training progress logs')
+    parser.add_argument(
         '--no-validate',
         action='store_true',
         help='whether not to evaluate the checkpoint during training')
@@ -102,6 +107,11 @@ def main():
                                 osp.splitext(osp.basename(args.config))[0])
     if args.resume_from is not None:
         cfg.resume_from = args.resume_from
+    if args.log_interval is not None:
+        if 'log_config' not in cfg:
+            cfg.log_config = dict(interval=args.log_interval, hooks=[dict(type='TextLoggerHook')])
+        else:
+            cfg.log_config['interval'] = args.log_interval
     if args.gpus is not None:
         cfg.gpu_ids = range(1)
         warnings.warn('`--gpus` is deprecated because we only support '
@@ -156,7 +166,11 @@ def main():
 
     # log some basic info
     logger.info(f'Distributed training: {distributed}')
-    logger.info(f'Config:\n{cfg.pretty_text}')
+    try:
+        config_text = cfg.pretty_text
+    except TypeError:
+        config_text = cfg.text
+    logger.info(f'Config:\n{config_text}')
 
     # set random seeds
     seed = init_random_seed(args.seed)
@@ -179,7 +193,7 @@ def main():
         # checkpoints as meta data
         cfg.checkpoint_config.meta = dict(
             mmpose_version=__version__ + get_git_hash(digits=7),
-            config=cfg.pretty_text,
+            config=config_text,
         )
     train_model(
         model,
