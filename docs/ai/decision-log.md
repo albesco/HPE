@@ -1,0 +1,10 @@
+# Decision Log
+
+Format:
+- YYYY-MM-DD | Area | Decision | Reason | Consequences
+
+- 2026-05-13 | Detection pipeline | Add a separately trained YOLO one-class `swimmer` detector before VitPose++ | GT bbox evaluation overestimates real inference quality; YOLO should provide bboxes for the top-down pose model | YOLO training is prepared from GT bbox annotations in a dedicated `script/yolo_training/` workflow; future VitPose++ evaluation should compare GT bbox vs YOLO bbox pipelines.
+- 2026-05-13 | Dataset bbox convention | Store Side_above_water GT bboxes with `0.10` padding in the prepared VitPose++ dataset and keep YOLO conversion padding at `0.0` | Original GT bboxes were visually too tight; adding padding once makes YOLO and VitPose++ train on the intended margin while avoiding double expansion | Regenerate dependent YOLO datasets after VitPose++ dataset regeneration; YOLO-predicted bboxes should be passed downstream as-is unless a new padding convention is deliberately trained and evaluated.
+- 2026-05-14 | Dataset bbox convention | Increase Side_above_water prepared GT bbox padding from `0.10` to `0.20` | Visual inspection indicated bboxes should be less tight before both YOLO and VitPose++ training | VitPose++ train/val/test and the derived YOLO dataset were regenerated; YOLO conversion still uses `bbox_padding_ratio=0.0` to avoid double padding.
+- 2026-05-14 | Dataset bbox convention | Use anisotropic GT bbox padding: horizontal `0.20`, vertical `0.25`, minimum `15 px` per side | The swimmer needs more vertical context while retaining controlled horizontal expansion | Preparation scripts now default to anisotropic padding; regenerate VitPose++ and derived YOLO datasets before the next training run.
+- 2026-05-14 | VitPose++ training observability | Add an optional current-status text file updated during training | Long-running tmux jobs need a quick progress check without parsing logs or attaching to the session | `src/vitpose_base/tools/train.py` accepts `--status-file` and `--status-interval`; the hook overwrites one status file with current epoch, iteration, percent, ETA, and work dir.

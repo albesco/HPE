@@ -76,7 +76,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frame-step", type=int, default=1)
     parser.add_argument("--max-frames-per-video", type=int, default=0)
     parser.add_argument("--max-videos", type=int, default=0)
-    parser.add_argument("--bbox-padding-ratio", type=float, default=0.05)
+    parser.add_argument(
+        "--bbox-padding-ratio",
+        type=float,
+        default=None,
+        help="Deprecated uniform bbox padding ratio. If set, applies to both axes.",
+    )
+    parser.add_argument("--bbox-padding-x-ratio", type=float, default=0.20)
+    parser.add_argument("--bbox-padding-y-ratio", type=float, default=0.25)
+    parser.add_argument("--bbox-min-padding-px", type=float, default=15.0)
     parser.add_argument("--min-visible-keypoints", type=int, default=4)
     parser.add_argument(
         "--flip-y",
@@ -134,7 +142,9 @@ def extract_samples_from_entry(
     images_root: Path,
     frame_step: int,
     max_frames_per_video: int,
-    bbox_padding_ratio: float,
+    bbox_padding_x_ratio: float,
+    bbox_padding_y_ratio: float,
+    bbox_min_padding_px: float,
     min_visible_keypoints: int,
     flip_y: bool,
     skip_counters: dict[str, int],
@@ -182,13 +192,16 @@ def extract_samples_from_entry(
             row=swapped_row,
             width=width,
             height=height,
-            bbox_padding_ratio=bbox_padding_ratio,
+            bbox_padding_x_ratio=bbox_padding_x_ratio,
+            bbox_padding_y_ratio=bbox_padding_y_ratio,
+            bbox_min_padding_px=bbox_min_padding_px,
             min_visible_keypoints=min_visible_keypoints,
             flip_y=flip_y,
         )
         if prepared is not None:
             keypoints, num_keypoints, bbox, area = prepared
             if detect_anomalous_bbox_shift(previous_bbox, bbox):
+                skip_counters["anomalous_bbox_shift"] += 1
                 if not anomaly_logged:
                     exception_log_entries.append(
                         f"{entry.video_path.name} | anomalous_bbox_shift_detected"
@@ -197,6 +210,9 @@ def extract_samples_from_entry(
                 exception_log_entries.append(
                     f"{entry.video_path.name} | frame_index={frame_index} | anomalous_bbox_shift | previous_bbox={previous_bbox} | current_bbox={bbox}"
                 )
+                frame_index += 1
+                label_index += 1
+                continue
             image_path = source_dir / f"{source_name}_{frame_index:06d}.jpg"
             cv2.imwrite(str(image_path), frame)
             samples.append(
@@ -397,6 +413,7 @@ def prepare_dataset(
         "missing_frame_for_label": 0,
         "missing_label_for_frame": 0,
         "no_valid_keypoints": 0,
+        "anomalous_bbox_shift": 0,
     }
     exception_log_entries: list[str] = []
 
@@ -408,7 +425,13 @@ def prepare_dataset(
                 images_root=images_root,
                 frame_step=args.frame_step,
                 max_frames_per_video=args.max_frames_per_video,
-                bbox_padding_ratio=args.bbox_padding_ratio,
+                bbox_padding_x_ratio=args.bbox_padding_ratio
+                if args.bbox_padding_ratio is not None
+                else args.bbox_padding_x_ratio,
+                bbox_padding_y_ratio=args.bbox_padding_ratio
+                if args.bbox_padding_ratio is not None
+                else args.bbox_padding_y_ratio,
+                bbox_min_padding_px=args.bbox_min_padding_px,
                 min_visible_keypoints=args.min_visible_keypoints,
                 flip_y=args.flip_y,
                 skip_counters=skip_counters,
@@ -469,6 +492,13 @@ def prepare_dataset(
         },
         "skips": skip_counters,
         "flip_y_enabled": args.flip_y,
+        "bbox_padding_x_ratio": args.bbox_padding_ratio
+        if args.bbox_padding_ratio is not None
+        else args.bbox_padding_x_ratio,
+        "bbox_padding_y_ratio": args.bbox_padding_ratio
+        if args.bbox_padding_ratio is not None
+        else args.bbox_padding_y_ratio,
+        "bbox_min_padding_px": args.bbox_min_padding_px,
     }
     (reports_dir / "preparation_report.json").write_text(
         json.dumps(report, indent=2),
@@ -501,10 +531,11 @@ def prepare_dataset(
     print(f"Val samples: {len(val_samples)}")
     print(f"Test samples: {len(test_samples)}")
     print(
-        "Skipped samples (missing frame / missing label / invalid keypoints): "
+        "Skipped samples (missing frame / missing label / invalid keypoints / anomalous bbox): "
         f"{skip_counters['missing_frame_for_label']} / "
         f"{skip_counters['missing_label_for_frame']} / "
-        f"{skip_counters['no_valid_keypoints']}"
+        f"{skip_counters['no_valid_keypoints']} / "
+        f"{skip_counters['anomalous_bbox_shift']}"
     )
     print(f"Exception log: {log_path}")
     print(f"Generated config: {generated_config}")

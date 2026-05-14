@@ -31,6 +31,7 @@ data/
 models/
 outputs/
 logs/
+runs/
 
 # Training checkpoints and weights
 *.pt

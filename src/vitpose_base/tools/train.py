@@ -31,6 +31,15 @@ def parse_args():
         default=None,
         help='override log_config.interval to control training progress logs')
     parser.add_argument(
+        '--status-file',
+        default=None,
+        help='write current training progress to this text file')
+    parser.add_argument(
+        '--status-interval',
+        type=int,
+        default=None,
+        help='iterations between status-file updates; defaults to log interval')
+    parser.add_argument(
         '--no-validate',
         action='store_true',
         help='whether not to evaluate the checkpoint during training')
@@ -112,6 +121,15 @@ def main():
             cfg.log_config = dict(interval=args.log_interval, hooks=[dict(type='TextLoggerHook')])
         else:
             cfg.log_config['interval'] = args.log_interval
+    if args.status_file is not None:
+        status_interval = args.status_interval
+        if status_interval is None:
+            status_interval = args.log_interval
+        if status_interval is None:
+            status_interval = cfg.get('log_config', {}).get('interval', 50)
+        cfg.status_monitor = dict(
+            path=args.status_file,
+            interval=max(1, int(status_interval)))
     if args.gpus is not None:
         cfg.gpu_ids = range(1)
         warnings.warn('`--gpus` is deprecated because we only support '

@@ -189,7 +189,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-ratio", type=float, default=0.1)
     parser.add_argument("--frame-step", type=int, default=1)
     parser.add_argument("--max-frames-per-video", type=int, default=0)
-    parser.add_argument("--bbox-padding-ratio", type=float, default=0.05)
+    parser.add_argument(
+        "--bbox-padding-ratio",
+        type=float,
+        default=None,
+        help="Deprecated uniform bbox padding ratio. If set, applies to both axes.",
+    )
+    parser.add_argument("--bbox-padding-x-ratio", type=float, default=0.20)
+    parser.add_argument("--bbox-padding-y-ratio", type=float, default=0.25)
+    parser.add_argument("--bbox-min-padding-px", type=float, default=15.0)
     parser.add_argument("--min-visible-keypoints", type=int, default=4)
     parser.add_argument(
         "--flip-y",
@@ -413,7 +421,9 @@ def build_keypoints_and_bbox(
     row: dict[str, str],
     width: int,
     height: int,
-    bbox_padding_ratio: float,
+    bbox_padding_x_ratio: float,
+    bbox_padding_y_ratio: float,
+    bbox_min_padding_px: float,
     min_visible_keypoints: int,
     flip_y: bool,
 ) -> tuple[list[float], int, list[float], float] | None:
@@ -455,8 +465,8 @@ def build_keypoints_and_bbox(
     max_x = max(point[0] for point in visible_points)
     min_y = min(point[1] for point in visible_points)
     max_y = max(point[1] for point in visible_points)
-    pad_x = max((max_x - min_x) * bbox_padding_ratio, 2.0)
-    pad_y = max((max_y - min_y) * bbox_padding_ratio, 2.0)
+    pad_x = max((max_x - min_x) * bbox_padding_x_ratio, bbox_min_padding_px)
+    pad_y = max((max_y - min_y) * bbox_padding_y_ratio, bbox_min_padding_px)
 
     bbox_x = max(0.0, min_x - pad_x)
     bbox_y = max(0.0, min_y - pad_y)
@@ -522,7 +532,9 @@ def extract_samples_from_entry(
     images_root: Path,
     frame_step: int,
     max_frames_per_video: int,
-    bbox_padding_ratio: float,
+    bbox_padding_x_ratio: float,
+    bbox_padding_y_ratio: float,
+    bbox_min_padding_px: float,
     min_visible_keypoints: int,
     flip_y: bool,
 ) -> list[Sample]:
@@ -555,7 +567,9 @@ def extract_samples_from_entry(
             row=label_rows[label_index],
             width=width,
             height=height,
-            bbox_padding_ratio=bbox_padding_ratio,
+            bbox_padding_x_ratio=bbox_padding_x_ratio,
+            bbox_padding_y_ratio=bbox_padding_y_ratio,
+            bbox_min_padding_px=bbox_min_padding_px,
             min_visible_keypoints=min_visible_keypoints,
             flip_y=flip_y,
         )
@@ -824,7 +838,13 @@ def prepare_dataset(
                 images_root=images_root,
                 frame_step=args.frame_step,
                 max_frames_per_video=args.max_frames_per_video,
-                bbox_padding_ratio=args.bbox_padding_ratio,
+                bbox_padding_x_ratio=args.bbox_padding_ratio
+                if args.bbox_padding_ratio is not None
+                else args.bbox_padding_x_ratio,
+                bbox_padding_y_ratio=args.bbox_padding_ratio
+                if args.bbox_padding_ratio is not None
+                else args.bbox_padding_y_ratio,
+                bbox_min_padding_px=args.bbox_min_padding_px,
                 min_visible_keypoints=args.min_visible_keypoints,
                 flip_y=args.flip_y,
             )

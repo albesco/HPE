@@ -1,4 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import os
+import time
 import warnings
 
 import mmcv
@@ -6,8 +8,8 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
-from mmcv.runner import (DistSamplerSeedHook, EpochBasedRunner, OptimizerHook,
-                         get_dist_info)
+from mmcv.runner import (DistSamplerSeedHook, EpochBasedRunner, Hook,
+                         OptimizerHook, get_dist_info)
 from mmcv.utils import digit_version
 
 from mmpose.core import DistEvalHook, EvalHook, build_optimizers
@@ -22,6 +24,74 @@ except ImportError:
         'Fp16OptimizerHook from mmpose will be deprecated from '
         'v0.15.0. Please install mmcv>=1.1.4', DeprecationWarning)
     from mmpose.core import Fp16OptimizerHook
+
+
+class TrainingStatusHook(Hook):
+    def __init__(self, path, interval=50, train_iters_per_epoch=None):
+        self.path = path
+        self.interval = max(1, int(interval))
+        self.train_iters_per_epoch = train_iters_per_epoch
+        self.started_at = None
+
+    def _write(self, runner, phase, message=None):
+        now = time.time()
+        if self.started_at is None:
+            self.started_at = now
+
+        epoch = runner.epoch + 1
+        inner_iter = runner.inner_iter + 1
+        max_epochs = runner.max_epochs
+        total_iters = None
+        progress_pct = None
+        eta_seconds = None
+        if self.train_iters_per_epoch:
+            total_iters = self.train_iters_per_epoch * max_epochs
+            completed_iters = min(runner.iter + 1, total_iters)
+            progress_pct = (completed_iters / total_iters) * 100.0
+            elapsed = max(0.0, now - self.started_at)
+            if completed_iters > 0:
+                eta_seconds = max(0.0, (elapsed / completed_iters) * (total_iters - completed_iters))
+
+        lines = [
+            f"updated_at={time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(now))}",
+            f"phase={phase}",
+            f"epoch={epoch}",
+            f"max_epochs={max_epochs}",
+            f"iter_in_epoch={inner_iter}",
+            f"iters_per_epoch={self.train_iters_per_epoch}",
+            f"global_iter={runner.iter + 1}",
+            f"total_iters={total_iters}",
+            f"progress_pct={progress_pct:.2f}" if progress_pct is not None else "progress_pct=",
+            f"eta_seconds={int(eta_seconds)}" if eta_seconds is not None else "eta_seconds=",
+            f"work_dir={runner.work_dir}",
+        ]
+        if message:
+            lines.append(f"message={message}")
+
+        abs_path = os.path.abspath(self.path)
+        status_dir = os.path.dirname(abs_path)
+        os.makedirs(status_dir, exist_ok=True)
+        tmp_path = f"{abs_path}.tmp"
+        with open(tmp_path, 'w', encoding='utf-8') as status_file:
+            status_file.write('\n'.join(lines) + '\n')
+        os.replace(tmp_path, abs_path)
+
+    def before_run(self, runner):
+        self.started_at = time.time()
+        self._write(runner, 'starting')
+
+    def before_train_epoch(self, runner):
+        self._write(runner, 'train')
+
+    def after_train_iter(self, runner):
+        if (runner.inner_iter + 1) % self.interval == 0:
+            self._write(runner, 'train')
+
+    def after_train_epoch(self, runner):
+        self._write(runner, 'train_epoch_done')
+
+    def after_run(self, runner):
+        self._write(runner, 'finished')
 
 
 def init_random_seed(seed=None, device='cuda'):
@@ -176,6 +246,14 @@ def train_model(model,
     runner.register_training_hooks(cfg.lr_config, optimizer_config,
                                    cfg.checkpoint_config, cfg.log_config,
                                    cfg.get('momentum_config', None))
+    status_monitor = cfg.get('status_monitor', None)
+    if status_monitor:
+        runner.register_hook(
+            TrainingStatusHook(
+                path=status_monitor['path'],
+                interval=status_monitor.get('interval', 50),
+                train_iters_per_epoch=train_iters_per_epoch),
+            priority='VERY_LOW')
     if distributed:
         runner.register_hook(DistSamplerSeedHook())
 
