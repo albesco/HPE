@@ -5,23 +5,25 @@
 - Define target VitPose++ annotation format.
 - Implement dataset conversion script.
 - Add validation script for converted annotations.
-- Create training config.
-- Create training launcher.
 - Document reproducible workflow.
+- Rerun full-test `YoloVitPose_mAP` metrics with the consolidated pipeline.
+- Decide whether YOLO no-detection cases need confidence tuning or fallback behavior.
 
 ## In progress
-- Side_above_water: train VitPose++ on anisotropic GT bboxes in tmux for 30 epochs.
+- None recorded.
 
 ## Done
 - Prepared Side_above_water YOLO detection dataset from GT bboxes.
 - Added dedicated YOLO training scripts under `script/yolo_training/`.
-- Added lightweight VitPose++ training status monitor file support.
-- Generated Side_above_water validation GT bbox-only overlays in `data/intermediate/bbox_val/`.
-- Regenerated Side_above_water VitPose++ train/val/test annotations with GT bbox padding ratio `0.10`.
-- Regenerated Side_above_water YOLO dataset from the padded GT annotations with no extra YOLO-side padding.
-- Stopped YOLO training after epoch 11, froze best/last checkpoints, evaluated epoch-10/best checkpoint, and generated 20 random validation bbox previews.
-- Regenerated Side_above_water VitPose++ and YOLO datasets with GT bbox padding ratio `0.20`.
-- Stopped YOLO padding-20 smoke training before completion to switch to anisotropic GT bbox padding.
-- Regenerated Side_above_water VitPose++ and YOLO datasets with anisotropic GT bbox padding: `0.20` horizontal, `0.25` vertical, min `15 px`.
 - Completed YOLO anisotropic-padding smoke training for 5 epochs; best epoch-5 metrics: precision `0.99227`, recall `0.99249`, mAP50 `0.99266`, mAP50-95 `0.87601`.
-- Cleaned obsolete `data/intermediate` visual preview directories and removed non-annotation `*_with-KP.jpg` previews from the active VitPose++ dataset.
+- Regenerated Side_above_water VitPose++ and YOLO datasets with anisotropic GT bbox padding: `0.20` horizontal, `0.25` vertical, min `15 px`.
+- Added lightweight VitPose++ training status monitor file support.
+- Patched VitPose++ resume to tolerate invalid checkpoint metadata config and successfully resumed from `epoch_4.pth`.
+- Updated VitPose++ checkpoint retention to keep best validation plus latest three periodic checkpoints.
+- Completed VitPose++ incremental training through epoch `40`; best validation checkpoint is `best_AP_epoch_35.pth`, latest is `epoch_40.pth`.
+- Generated completed-epoch loss/mAP plots for the full VitPose++ run.
+- Invalidated and removed failed previous YOLO+VitPose artifacts whose saved keypoints were not reproducible.
+- Consolidated `YoloVitPose_mAP` pipeline and MMPose-only visualization style.
+- Generated 20 paired GT-bbox vs current YOLO->VitPose qualitative samples.
+- Documented CHAT-TRAINING and CHAT-TRAINING-2 handoff/session state in `docs/ai/`.
+- Completed CHAT-TRAINING-2 handoff / context preservation for training and end-to-end evaluation state.

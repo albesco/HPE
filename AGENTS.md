@@ -1,44 +1,37 @@
-# AGENTS.md
+## AI memory protocol
 
-## Project
-Training pipeline for HPE VitPose++ on a subset of SwimXYZ.
+This repository uses `docs/ai/` as the persistent project memory shared by Codex sessions.
 
-## Mandatory workflow for Codex
-Before making changes:
-1. Read this file.
-2. Read docs/ai/context.md.
-3. Read docs/ai/decision-log.md if the task affects architecture, dataset format, training, or documentation.
+Before any non-trivial task, read:
 
-After making relevant changes:
-1. Update docs/ai/context.md with the current state.
-2. Update docs/ai/decision-log.md only for durable decisions.
-3. Update docs/ai/task-board.md if task status changed.
-4. Do not store secrets, absolute private paths, credentials, or large logs.
+1. `AGENTS.md`
+2. `docs/ai/context.md`
+3. `docs/ai/task-board.md`
+4. `docs/ai/chat-index.md`
+5. `docs/ai/chat-roles.md`
+6. `docs/ai/handoff.md` if it exists
 
-## Coding rules
-- Use Python.
-- Prefer small, testable modules.
-- Keep dataset conversion, training, evaluation, and documentation separated.
-- Use clear names for constants and variables.
-- Add CLI entry points for scripts that are meant to be run on the server.
-- Avoid hardcoded paths; use config files or command-line arguments.
+Also read `docs/ai/decision-log.md` when the task affects:
+- architecture
+- dataset format
+- training configuration
+- evaluation
+- documentation
+- reproducibility
 
-## Repository discipline
-- Do not overwrite existing dataset labels.
-- Do not commit large datasets, videos, checkpoints, or generated logs.
-- Keep reproducibility notes updated.
+For training, evaluation, dataset conversion, or experiment-related work, also read:
+- `docs/ai/tests-and-results.md` if it exists
+- relevant files under `docs/ai/experiments/`
+- relevant files under `docs/ai/runbooks/`
 
-## Codex session discipline
+Before ending a long session or when context is becoming limited:
 
-Because Codex VS Code chat titles are auto-generated and may not be manually renamed, every session must identify itself through docs/ai/chat-index.md.
+1. Update `docs/ai/handoff.md`.
+2. Update `docs/ai/context.md` only with consolidated current state.
+3. Update `docs/ai/task-board.md` if task status changed.
+4. Update `docs/ai/chat-index.md` if the session role or active files changed.
+5. Add or update a session note under `docs/ai/sessions/` for any substantial work.
+6. Update `docs/ai/tests-and-results.md` for any test, training, evaluation, or metrics result.
+7. Add or update an experiment note under `docs/ai/experiments/` for any reproducible training/eval run (include run id, config, and outcomes).
 
-At the beginning of each session:
-1. Read docs/ai/chat-index.md.
-2. Ask which logical chat role this session belongs to if unclear.
-3. Use that role consistently.
-
-At the end of relevant work:
-1. Update docs/ai/context.md.
-2. Update docs/ai/chat-index.md.
-3. Update docs/ai/decision-log.md only for durable decisions.
-
+Do not use chat history as the source of truth. Treat repository files and `docs/ai/` as the durable source of truth.

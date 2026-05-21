@@ -1,5 +1,17 @@
 # Codex Chat Roles
 
+## Documentation / AI memory maintenance (CHAT-DOCS)
+Owns:
+- docs/ai/ memory structure
+- start-here / handoff hygiene
+- experiment note templates and indexing
+- maintaining chat index and role registry
+
+Must update:
+- docs/ai/handoff.md when changes affect next steps
+- docs/ai/chat-index.md when roles/files change
+- docs/ai/task-board.md only when task status changes
+
 ## Dataset conversion chat
 Owns:
 - SwimXYZ parsing

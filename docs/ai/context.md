@@ -1,76 +1,78 @@
 # Shared AI Context
 
 ## Current project state
-- Goal: train/evaluate VitPose++ on a SwimXYZ subset.
+- Goal: train/evaluate VitPose++ on a SwimXYZ Side_above_water subset and evaluate realistic YOLO-bbox -> VitPose++ inference.
 - Environment: VS Code over SSH to Linux server.
 - Repository: GitHub.
 - Main workstreams:
   - Dataset conversion: SwimXYZ -> VitPose++/MMPose-compatible format.
   - Training: configs, launch scripts, checkpoints, metrics.
-  - Workspace Q&A/debugging.
-  - Documentation.
+  - Detection + pose evaluation: YOLO bbox -> VitPose++ keypoints -> COCO mAP.
+  - Documentation and reproducibility memory under `docs/ai/`.
 
 ## Dataset notes
 - Source dataset: SwimXYZ subset.
-- Inputs: videos and labels.
-- Target format: VitPose++ training format.
+- Prepared dataset root: `data/intermediate/Side_above_water/_train_vitposepp/`.
+- Target format: COCO-style keypoint annotations for MMPose/VitPose++.
+- Current GT bbox convention: anisotropic padding, horizontal `0.20`, vertical `0.25`, minimum `15 px` per side, clipped to image boundaries.
+- YOLO conversion reads the already padded GT bboxes with no extra padding; do not add YOLO-side/downstream padding unless a new experiment explicitly changes convention.
 
 ## Current conventions
 - Python modules should be small and explicit.
 - Scripts should expose CLI arguments.
 - Paths must not be hardcoded.
 - Generated artifacts should go outside Git or under ignored directories.
-
-## Open questions
-- Exact SwimXYZ label schema.
-- Exact target annotation schema required by the chosen VitPose++ implementation.
-- Train/val/test split policy.
-- Evaluation metrics.
+- For current VitPose++ training, retain best validation checkpoint plus latest three periodic checkpoints (`max_keep_ckpts=3`).
 
 ## Codex sessions
-- 2026-05-11 | CHAT-DATASET | SwimXYZ 2 VitPose++ | Role: dataset-conversion (see `docs/ai/chat-index.md`).
-- 2026-05-12 | CHAT-TRAINING | VitPose++ Training | Role: training (see `docs/ai/chat-index.md`).
+- 2026-05-11 | CHAT-DATASET | SwimXYZ 2 VitPose++ | Role: dataset-conversion.
+- 2026-05-12 | CHAT-TRAINING | VitPose++ Training | Role: training.
+- 2026-05-15/19 | CHAT-TRAINING-2 | VitPose++ Training 2 | Role: training.
 
-## Training readiness (Side_above_water)
-- Prepared dataset root: `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/`
-- Generated config: `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_single_head_swap_ears.py`
-- Work dir: `runs/vitposepp_single_head_subset_xyz_swap_ears/`
-- Helper launcher (train 10 epochs + checkpoint every 5 + plots): `script/run_train_side_above_water_10ep.sh`
-- VitPose++ training supports a lightweight current-status file via `--status-file` and `--status-interval`; launchers write `runs/vitposepp_single_head_subset_xyz_swap_ears/training_status.txt`.
-- Active VitPose++ anisotropic GT training: tmux session `vitpose_side_above_water_aniso_30ep`, work dir `runs/vitposepp_side_above_water_aniso_20x25_min15/`, status file `runs/vitposepp_side_above_water_aniso_20x25_min15/training_status.txt`, checkpoints every epoch, total epochs `30`.
-- Current active training status as of 2026-05-14 17:03 UTC: epoch `3/30`, checkpoints available through `epoch_2.pth`.
+## VitPose++ training state
+- Active work dir: `runs/vitposepp_side_above_water_aniso_20x25_min15/`.
+- Generated config: `data/intermediate/Side_above_water/_train_vitposepp/generated_configs/swimxyz_vitposepp_huge_single_head.py`.
+- Final completed training status: phase `finished`, target `40` epochs, status timestamp `2026-05-16 17:19:43 UTC`.
+- Final log: `runs/vitposepp_side_above_water_aniso_20x25_min15/20260516_100449.log`.
+- Latest periodic checkpoint: `runs/vitposepp_side_above_water_aniso_20x25_min15/epoch_40.pth`.
+- Latest symlink: `runs/vitposepp_side_above_water_aniso_20x25_min15/latest.pth -> epoch_40.pth`.
+- Best validation checkpoint: `runs/vitposepp_side_above_water_aniso_20x25_min15/best_AP_epoch_35.pth`.
+- Retained periodic checkpoints visible: `epoch_38.pth`, `epoch_39.pth`, `epoch_40.pth`.
+- Older best retained: `best_AP_epoch_30.pth`.
+- Mild plateau / early overfitting signal after epoch 35: AP `0.9821` at epoch 35, AP `0.9812` at epoch 40 while loss continued decreasing.
+- Recommended VitPose++ checkpoint for downstream use: `best_AP_epoch_35.pth`.
 
-## YOLO detector preparation (Side_above_water)
-- Goal: train a one-class `swimmer` detector from GT bboxes, then use YOLO bboxes before VitPose++ inference.
-- Scripts: `script/yolo_training/prepare_yolo_detection_dataset.py`, `script/yolo_training/train_yolo_side_above_water.sh`
-- Generated YOLO dataset: `data/intermediate/Side_above_water/_yolo_detection/`
-- Generated data YAML: `data/intermediate/Side_above_water/_yolo_detection/swimxyz_side_above_water_yolo.yaml`
-- Current VitPose++ GT annotations use bbox padding ratio `0.20` before train/val/test split.
-- Current VitPose++ GT annotations use anisotropic bbox padding: horizontal `0.20`, vertical `0.25`, minimum `15 px` per side.
-- YOLO conversion reads those already padded GT bboxes with `bbox_padding_ratio=0.0`; do not add padding again downstream unless explicitly retraining/evaluating a new convention.
-- YOLO diagnostic: `yolo26x.pt` with `imgsz=1280` and `batch=8` fails on the 32 GB V100 with CUDA OOM; launcher defaults were reduced to `batch=2`, `workers=2`, with persistent logs under `logs/`.
-- YOLO training `yolo26x_swimmer_gt_bbox_padded10_20ep` was stopped after epoch 11 was recorded in `results.csv`.
-- Frozen checkpoints are in `runs/yolo_side_above_water/yolo26x_swimmer_gt_bbox_padded10_20ep/frozen_checkpoints/`: `best_epoch10_user_20260514_070621.pt`, `last_epoch11_user_20260514_070621.pt`, and `results_stopped_20260514_070621.csv`.
-- Epoch-10/best validation metrics: precision `0.985`, recall `0.986`, mAP50 `0.992`, mAP50-95 `0.872`; validation output directory `runs/detect/runs/yolo_side_above_water/val_best_epoch10_user_20260514_070621/`.
-- Random validation bbox previews from the frozen epoch-10/best YOLO checkpoint were generated, then removed during intermediate workspace cleanup.
-- Padding-20 GT dataset was generated with train `18181`, val `5195`, test `2597`; YOLO dataset was regenerated from it with no extra padding.
-- YOLO padding-20 smoke training `yolo26x_swimmer_gt_bbox_padded20_5ep` was stopped before completion to change the bbox padding convention.
-- Anisotropic-padding GT dataset was generated with train `18181`, val `5195`, test `2597`; YOLO dataset was regenerated from it with no extra padding.
-- YOLO anisotropic-padding smoke training completed for 5 epochs: run `runs/yolo_side_above_water/yolo26x_swimmer_gt_bbox_aniso_20x25y_min15_5ep/`, weights `weights/best.pt` and `weights/last.pt`.
-- YOLO anisotropic epoch-5 validation metrics: precision `0.99227`, recall `0.99249`, mAP50 `0.99266`, mAP50-95 `0.87601`.
+## VitPose++ validation metrics
+- Epoch 5 AP `0.8604`
+- Epoch 10 AP `0.9424`
+- Epoch 15 AP `0.9549`
+- Epoch 20 AP `0.9727`
+- Epoch 25 AP `0.9739`
+- Epoch 30 AP `0.9776`
+- Epoch 35 AP `0.9821`
+- Epoch 40 AP `0.9812`
 
-## VitPose++ qualitative preview note
-- Previous custom preview inference passed `xyxy` coordinates into MMPose `_box2cs`, which expects `xywh`; this caused visually bad predicted keypoint overlays despite GT bboxes.
-- Fixed custom preview inference and centralized overlay helpers in `script/pose_overlay_utils.py`; all active keypoint preview scripts should use this module so bbox format and skeleton drawing stay consistent.
-- Updated `script/compare_test_overlays.py`, `script/preview_test_predictions.py`, and `script/visualize_gt_vs_pred_keypoints.py` to use the shared utility.
-- Corrected GT-vs-pred overlays are in `data/output/preview/gt_vs_pred_keypoints_fixed_bbox_format/`; consolidation smoke-test outputs are in `data/output/preview/consistency_check/`.
+Latest plots:
+- `data/intermediate/Side_above_water/_train_vitposepp/reports/training_plots/loss_epoch_avg__20260519_230159_completed_epochs.png`
+- `data/intermediate/Side_above_water/_train_vitposepp/reports/training_plots/mAP_validation__20260519_230159_completed_epochs.png`
+- `data/intermediate/Side_above_water/_train_vitposepp/reports/training_plots/loss_map_summary__20260519_230159_completed_epochs.csv`
 
-## GT bbox visual checks
-- Added bbox-only visualization script: `script/visualize_gt_bboxes.py`.
-- Generated GT bbox overlays for visual checks, then removed intermediate preview directories during cleanup.
+## YOLO detector state
+- Current YOLO detector run: `runs/yolo_side_above_water/yolo26x_swimmer_gt_bbox_aniso_20x25y_min15_5ep/`.
+- Weights: `weights/best.pt`, `weights/last.pt`.
+- Epoch-5 validation metrics: precision `0.99227`, recall `0.99249`, mAP50 `0.99266`, mAP50-95 `0.87601`.
+- YOLO OOM diagnostic: `logs/yolo_diagnostic_1280_b8_20260513_135040.log`; `yolo26x.pt`, `imgsz=1280`, `batch=8` exhausted 32 GB V100.
 
-## Intermediate workspace state
-- `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/`: active VitPose++ dataset, about `15G` after removing non-annotation `*_with-KP.jpg` previews.
-- `data/intermediate/Side_above_water/_yolo_detection/`: current YOLO dataset derived from anisotropic GT bboxes, about `224M`.
-- `data/intermediate/Side_above_water/_converted/`: conversion intermediate retained for possible dataset regeneration, about `3.4G`.
-- Removed obsolete visual preview directories from `data/intermediate/`: `bbox_val`, `bbox_val_padded20_sample50`, `bbox_val_anisotropic_sample50`, `epoch_10_yolo_bbox`, `yolo_aniso_ep5_test_bbox_sample20`.
+## End-to-end YOLO+VitPose++ pipeline
+- Consolidated experiment name: `YoloVitPose_mAP`.
+- Consolidated script: `script/yolo_training/evaluate_yolo_vitpose_map.py`.
+- Pipeline: YOLO predicts absolute `xyxy` bbox on the full frame; code converts bbox to COCO `xywh`; VitPose++ receives full image + `xywh` bbox; MMPose performs the top-down crop/affine internally; COCO keypoint mAP evaluates predictions.
+- Visualization convention: use MMPose `vis_pose_result` for predicted keypoints/skeleton and draw only the YOLO bbox in red; do not use custom fuchsia/GT-mixed skeleton renderers for YOLO+VitPose outputs.
+- YOLO checkpoint: `runs/yolo_side_above_water/yolo26x_swimmer_gt_bbox_aniso_20x25y_min15_5ep/weights/best.pt`.
+- VitPose++ checkpoint: `runs/vitposepp_side_above_water_aniso_20x25_min15/best_AP_epoch_35.pth`.
+- Current qualitative comparison set: `data/output/experiments/YoloVitPose_mAP/test_20260520_0852_best35_vispose_overlays/` (`20` GT-bbox references plus `20` YOLO->VitPose outputs; `2` YOLO no-detection markers at `conf=0.25`).
+- Previous failed YOLO+VitPose outputs and saved result JSON were invalidated because saved keypoints were not reproducible with the current bbox/model path; those failed experiment artifacts were removed.
+
+## Open questions / next work
+- Rerun the full consolidated `YoloVitPose_mAP` test evaluation with `script/yolo_training/evaluate_yolo_vitpose_map.py` to regenerate metrics from the corrected pipeline.
+- Use the consolidated visualization directory to inspect remaining YOLO no-detection cases and decide whether to tune YOLO confidence/fallback behavior.
