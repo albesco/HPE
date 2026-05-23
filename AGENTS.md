@@ -2,6 +2,15 @@
 
 This repository uses `docs/ai/` as the persistent project memory shared by Codex sessions.
 
+## Sandbox / tooling note
+
+This server does not support the sandbox mechanism used by Codex tools (bubblewrap / `bwrap`).
+Until further notice:
+
+- Avoid relying on sandboxed operations (they may fail with `bwrap` errors).
+- Prefer running commands and making memory-only edits outside the sandbox.
+- When editing `docs/ai/` or other memory files, keep changes minimal and scoped; a small targeted script is acceptable.
+
 Before any non-trivial task, read:
 
 1. `AGENTS.md`

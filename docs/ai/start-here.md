@@ -24,6 +24,10 @@ This directory is the persistent AI project memory for Codex sessions.
 - `chat-roles.md`: ownership model for chat roles.
 - `tests-and-results.md`: latest validation and experiment outcomes.
 
+## Operational notes
+
+- Sandbox is currently unavailable on the server (Codex bubblewrap / `bwrap` failures). Prefer non-sandboxed commands and minimal, targeted edits for memory files until further notice.
+
 ## Directories
 
 - `sessions/`: chronological notes from individual Codex sessions.
