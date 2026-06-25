@@ -1035,6 +1035,95 @@ def slide20(wb: Workbook, bundles: Dict[str, EvalBundle], thresholds: Dict[str, 
     ], rows20, "Δ mean = YOLO mean − VitPose mean. Positive values indicate VitPose++ advantage.")
 
 
+
+def per_kp_ap50_95_rows(bundles: Dict[str, EvalBundle], thresholds: Dict[str, float]) -> Tuple[List[List[Any]], List[Dict[str, Any]]]:
+    """Build the requested per-KP AP50-95 table sorted by cross-test combined P90.
+
+    AP is computed by reusing the same COCO/OKS evaluator used for global AP/AR,
+    but filtering the GT/prediction keypoint vector to one keypoint at a time.
+    Operational-threshold scenarios are used.
+    """
+    y_cross = get_bundle(bundles, "cross_B_to_A_Top", "yolo")
+    v_cross = get_bundle(bundles, "cross_B_to_A_Top", "vitpose")
+    combined = combined_p90_by_kp(y_cross, v_cross)
+
+    scenario_specs = [
+        ("direct_B_Top", "yolo", "AP Yolo26x-Pose SAW_frames Direct Test"),
+        ("cross_B_to_A_Top", "yolo", "AP Yolo26x-Pose SAW_frames Cross Test"),
+        ("direct_A_Top", "yolo", "AP Yolo26x-Pose SAW_frames_EntireSwim Direct Test"),
+        ("direct_B_Top", "vitpose", "AP VitPose++ SAW_frames Direct Test"),
+        ("cross_B_to_A_Top", "vitpose", "AP VitPose++ SAW_frames Cross Test"),
+        ("direct_A_Top", "vitpose", "AP VitPose++ SAW_frames_EntireSwim Direct Test"),
+    ]
+
+    # Cache each per-KP AP computation because COCOeval is relatively expensive.
+    ap_cache: Dict[Tuple[str, str, int], Optional[float]] = {}
+    for sc_id, model_key, _ in scenario_specs:
+        bundle = get_bundle(bundles, sc_id, model_key)
+        for idx in ALL_KP_INDEXES:
+            ap_cache[(sc_id, model_key, idx)] = compute_ap_ar(
+                bundle.gt,
+                bundle.predictions,
+                bundle.scenario.threshold,
+                [idx],
+            ).get("AP")
+
+    table_rows: List[List[Any]] = []
+    validation_rows: List[Dict[str, Any]] = []
+    previous_p90 = None
+    for rank, item in enumerate(combined, start=1):
+        kp = item["kp"]
+        idx = COCO_KEYPOINTS.index(kp)
+        p90 = item["p90_combined"]
+        group = classify_p90(p90, thresholds)
+        label = f"{group} ●" if kp in HEAD_KP else group
+        row = [rank, kp, p90, label]
+        out_validation = {
+            "rank": rank,
+            "kp_index": idx,
+            "kp_name": kp,
+            "p90_combined_cross_thresholded": p90,
+            "classification": label,
+            "p90_monotonic_ok": previous_p90 is None or p90 >= previous_p90,
+        }
+        previous_p90 = p90
+        for sc_id, model_key, col in scenario_specs:
+            ap = ap_cache.get((sc_id, model_key, idx))
+            row.append(ap)
+            out_validation[col] = ap
+            out_validation[f"{col} in [0,1]"] = (ap is None) or (0.0 <= float(ap) <= 1.0)
+        table_rows.append(row)
+        validation_rows.append(out_validation)
+    return table_rows, validation_rows
+
+
+def sheet_per_kp_ap50_95(wb: Workbook, bundles: Dict[str, EvalBundle], thresholds: Dict[str, float]) -> List[Dict[str, Any]]:
+    ws = new_sheet(wb, "Per-KP AP50-95", "Per-KP AP50-95 by Scenario")
+    rows, validation_rows = per_kp_ap50_95_rows(bundles, thresholds)
+    headers = [
+        "Rank",
+        "KP",
+        "P90 comb. cross",
+        "Group",
+        "AP Yolo26x-Pose SAW_frames Direct Test",
+        "AP Yolo26x-Pose SAW_frames Cross Test",
+        "AP Yolo26x-Pose SAW_frames_EntireSwim Direct Test",
+        "AP VitPose++ SAW_frames Direct Test",
+        "AP VitPose++ SAW_frames Cross Test",
+        "AP VitPose++ SAW_frames_EntireSwim Direct Test",
+    ]
+    write_table(
+        ws,
+        3,
+        1,
+        "Per-KP AP50-95, sorted by cross-test combined P90",
+        headers,
+        rows,
+        "AP is computed with COCO OKS thresholds 0.50:0.05:0.95, filtering one keypoint at a time. Rows are sorted by the unified YOLO+VitPose P90 distribution from the cross thresholded scenario. ● indicates head KPs.",
+    )
+    return validation_rows
+
+
 def build_workbook(bundles: Dict[str, EvalBundle], val_metrics: Dict[str, Dict[str, Any]], output_path: Path, difficulty_thresholds: Dict[str, float], slides: Sequence[int]) -> None:
     wb = Workbook()
     default = wb.active
@@ -1055,6 +1144,8 @@ def build_workbook(bundles: Dict[str, EvalBundle], val_metrics: Dict[str, Dict[s
         slide19(wb, bundles, difficulty_thresholds)
     if 20 in slides:
         slide20(wb, bundles, difficulty_thresholds)
+    if 21 in slides:
+        sheet_per_kp_ap50_95(wb, bundles, difficulty_thresholds)
     style_workbook(wb)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -1101,7 +1192,7 @@ def export_intermediates(out_dir: Path, bundles: Dict[str, EvalBundle], val_metr
 
 def parse_slides(raw: str) -> List[int]:
     if raw.lower() in ("all", "*"):
-        return [8, 9, 10, 16, 17, 18, 19, 20]
+        return [8, 9, 10, 16, 17, 18, 19, 20, 21]
     values = []
     for part in raw.split(","):
         part = part.strip()
@@ -1119,7 +1210,7 @@ def main() -> None:
     parser.add_argument("--vitpose-threshold", type=float, default=0.20, help="Default VitPose keypoint confidence threshold for thresholded tables.")
     parser.add_argument("--min-delta", type=float, default=0.007, help="Min delta used to reproduce validation best epoch selection.")
     parser.add_argument("--patience", type=int, default=3, help="Patience used to reproduce validation best epoch selection.")
-    parser.add_argument("--slides", default="all", help="Comma-separated slide numbers to export, e.g. 8,16,17,18,19,20 or all.")
+    parser.add_argument("--slides", default="all", help="Comma-separated slide/sheet numbers to export, e.g. 8,16,17,18,19,20,21 or all. Use 21 for the Per-KP AP50-95 table.")
     parser.add_argument("--validate-only", action="store_true", help="Compute metrics and validate inputs without writing XLSX.")
     parser.add_argument("--export-intermediate-csv", action="store_true", help="Export scenario_summary/per_kp_metrics/val CSV files next to the XLSX.")
     parser.add_argument("--difficulty-easy-max", type=float, default=6.0, help="P90 max threshold for Easy KP group.")
@@ -1141,19 +1232,38 @@ def main() -> None:
     methods = sorted(set(str(b.ap_ar.get("ap_ar_method")) for b in bundles.values()))
     print(f"AP/AR method(s): {', '.join(methods)}")
 
-    if args.export_intermediate_csv:
-        export_intermediates(output_path.parent / "intermediate_csv", bundles, val_metrics)
-        print(f"Intermediate CSV exported to: {output_path.parent / 'intermediate_csv'}")
-
-    if args.validate_only:
-        print("Validation only completed; XLSX not written.")
-        return
-
     difficulty_thresholds = {
         "easy_max": args.difficulty_easy_max,
         "medium_max": args.difficulty_medium_max,
         "high_max": args.difficulty_high_max,
     }
+
+    if args.export_intermediate_csv:
+        out_csv_dir = output_path.parent / "intermediate_csv"
+        export_intermediates(out_csv_dir, bundles, val_metrics)
+        # Export the requested per-KP AP50-95 table as CSV as well.
+        ap_rows, ap_validation = per_kp_ap50_95_rows(bundles, difficulty_thresholds)
+        ap_headers = [
+            "Rank", "KP", "P90 comb. cross", "Group",
+            "AP Yolo26x-Pose SAW_frames Direct Test",
+            "AP Yolo26x-Pose SAW_frames Cross Test",
+            "AP Yolo26x-Pose SAW_frames_EntireSwim Direct Test",
+            "AP VitPose++ SAW_frames Direct Test",
+            "AP VitPose++ SAW_frames Cross Test",
+            "AP VitPose++ SAW_frames_EntireSwim Direct Test",
+        ]
+        out_csv_dir.mkdir(parents=True, exist_ok=True)
+        with (out_csv_dir / "per_kp_ap50_95_by_scenario.csv").open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(ap_headers)
+            writer.writerows(ap_rows)
+        write_csv(out_csv_dir / "per_kp_ap50_95_validation.csv", ap_validation)
+        print(f"Intermediate CSV exported to: {out_csv_dir}")
+
+    if args.validate_only:
+        print("Validation only completed; XLSX not written.")
+        return
+
     build_workbook(bundles, val_metrics, output_path, difficulty_thresholds, parse_slides(args.slides))
     print(f"XLSX written to: {output_path}")
 
