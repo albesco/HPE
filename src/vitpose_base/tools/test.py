@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import argparse
+import json
 import os
 import os.path as osp
 import warnings
@@ -8,7 +9,7 @@ import mmcv
 import torch
 from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn
-from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
+from mmcv.parallel import DataContainer, MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import get_dist_info, init_dist, load_checkpoint
 
 from mmpose.apis import multi_gpu_test, single_gpu_test
@@ -32,6 +33,10 @@ def parse_args():
     parser.add_argument(
         '--work-dir', help='the dir to save evaluation results')
     parser.add_argument(
+        '--eval-out',
+        default=None,
+        help='optional JSON path where evaluation metrics will be written')
+    parser.add_argument(
         '--fuse-conv-bn',
         action='store_true',
         help='Whether to fuse conv and bn, this will slightly increase'
@@ -42,6 +47,10 @@ def parse_args():
         default=0,
         help='id of gpu to use '
         '(only applicable to non-distributed testing)')
+    parser.add_argument(
+        '--device',
+        default='auto',
+        help="device to use for non-distributed testing: 'auto', 'cpu', or 'cuda[:N]'")
     parser.add_argument(
         '--eval',
         default=None,
@@ -71,6 +80,44 @@ def parse_args():
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
     return args
+
+
+def resolve_device(args):
+    if args.device == 'auto':
+        return 'cuda' if torch.cuda.is_available() else 'cpu'
+    return args.device
+
+
+def _unwrap_cpu_data(value):
+    if isinstance(value, DataContainer):
+        data = value.data
+        if isinstance(data, list) and len(data) == 1:
+            return _unwrap_cpu_data(data[0])
+        return data
+    if isinstance(value, dict):
+        return {k: _unwrap_cpu_data(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return tuple(_unwrap_cpu_data(v) for v in value)
+    if isinstance(value, list):
+        return [_unwrap_cpu_data(v) for v in value]
+    return value
+
+
+def single_cpu_test(model, data_loader):
+    model.eval()
+    results = []
+    dataset = data_loader.dataset
+    prog_bar = mmcv.ProgressBar(len(dataset))
+    for data in data_loader:
+        data = {key: _unwrap_cpu_data(value) for key, value in data.items()}
+        with torch.no_grad():
+            result = model(return_loss=False, **data)
+        results.append(result)
+
+        batch_size = len(data['img_metas']) if 'img_metas' in data else len(next(iter(data.values())))
+        for _ in range(batch_size):
+            prog_bar.update()
+    return results
 
 
 def merge_configs(cfg1, cfg2):
@@ -155,9 +202,23 @@ def main():
     if args.fuse_conv_bn:
         model = fuse_conv_bn(model)
 
+    device = resolve_device(args)
+    if device != 'cpu' and not torch.cuda.is_available():
+        warnings.warn(f"CUDA device '{device}' requested but CUDA is unavailable; falling back to CPU.")
+        device = 'cpu'
+
     if not distributed:
-        model = MMDataParallel(model, device_ids=[args.gpu_id])
-        outputs = single_gpu_test(model, data_loader)
+        if device == 'cpu':
+            model = model.cpu()
+            outputs = single_cpu_test(model, data_loader)
+        else:
+            if device.startswith('cuda:'):
+                try:
+                    args.gpu_id = int(device.split(':', 1)[1])
+                except ValueError:
+                    raise ValueError(f"Invalid --device value: {device}")
+            model = MMDataParallel(model, device_ids=[args.gpu_id])
+            outputs = single_gpu_test(model, data_loader)
     else:
         model = MMDistributedDataParallel(
             model.cuda(),
@@ -178,6 +239,10 @@ def main():
         results = dataset.evaluate(outputs, cfg.work_dir, **eval_config)
         for k, v in sorted(results.items()):
             print(f'{k}: {v}')
+        if args.eval_out:
+            mmcv.mkdir_or_exist(osp.dirname(osp.abspath(args.eval_out)))
+            with open(args.eval_out, 'w', encoding='utf-8') as handle:
+                json.dump(results, handle, indent=2, sort_keys=True)
 
 
 if __name__ == '__main__':

@@ -308,7 +308,22 @@ def train_model(model,
         f'load_from={cfg.get("load_from", None)}')
 
     if cfg.resume_from:
-        runner.resume(cfg.resume_from)
+        original_config_fromstring = mmcv.Config.fromstring
+
+        def tolerant_config_fromstring(*args, **kwargs):
+            try:
+                return original_config_fromstring(*args, **kwargs)
+            except SyntaxError as exc:
+                runner.logger.warning(
+                    'Ignoring invalid config metadata in checkpoint during '
+                    'resume: %s', exc)
+                return mmcv.Config(dict())
+
+        mmcv.Config.fromstring = tolerant_config_fromstring
+        try:
+            runner.resume(cfg.resume_from)
+        finally:
+            mmcv.Config.fromstring = original_config_fromstring
     elif cfg.load_from:
         runner.load_checkpoint(cfg.load_from)
     runner.run(data_loaders, cfg.workflow, cfg.total_epochs)

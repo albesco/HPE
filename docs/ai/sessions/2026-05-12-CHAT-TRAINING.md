@@ -15,13 +15,13 @@ The priority decision for this session was accuracy of keypoint prediction, not 
 ## 2. VitPose++ configurations created or modified
 
 - Active prepared dataset: `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/`
-- Active generated config: `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_single_head_swap_ears.py`
+- Active generated config: `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_vitposepp_swap_ears.py`
 - Preparation scripts now generate GT bboxes with anisotropic padding:
   - horizontal padding ratio: `0.20`;
   - vertical padding ratio: `0.25`;
   - minimum padding: `15 px` per side;
   - clipping to image boundaries.
-- `script/prepare_swimxyz_vitposepp_single_head.py` and `script/prepare_swimxyz_vitposepp_utils.py` were extended for anisotropic padding and checkpoint retention options.
+- `script_old/prepare_swimxyz_vitposepp.py` and `script/dataset_preparation/prepare_swimxyz_vitposepp_utils.py` were extended for anisotropic padding and checkpoint retention options.
 - VitPose++ training code was extended with a current-status file:
   - `src/vitpose_base/tools/train.py` accepts `--status-file` and `--status-interval`;
   - `src/vitpose_base/mmpose/apis/train.py` writes current epoch, iteration, progress, ETA, and work dir.
@@ -33,25 +33,25 @@ The priority decision for this session was accuracy of keypoint prediction, not 
 
 ## 3. Launchers created or modified
 
-- `script/run_train_side_above_water_10ep.sh`
+- `script_old/run_train_side_above_water_10ep.sh`
   - launcher for the original 10-epoch VitPose++ run with periodic checkpoints and plots.
-- `script/run_resume_side_above_water_to_25ep_tmux.sh`
+- `script_old/run_resume_side_above_water_to_25ep_tmux.sh`
   - tmux launcher for the active anisotropic VitPose++ resume run;
   - now targets `max_epochs=30` from the retained checkpoint;
   - writes `runs/vitposepp_side_above_water_aniso_20x25_min15/training_status.txt`.
-- `script/yolo_training/train_yolo_side_above_water.sh`
+- `script_old/yolo_training/train_yolo_side_above_water.sh`
   - dedicated YOLO launcher under the separate YOLO training directory.
 - Supporting scripts added/used during the session:
-  - YOLO dataset preparation and evaluation/preview scripts under `script/yolo_training/`;
-  - keypoint/bbox overlay helpers in `script/pose_overlay_utils.py`;
-  - plot generation through `script/plot_vitpose_training_log.py`;
-  - GT bbox visualization through `script/visualize_gt_bboxes.py`.
+  - YOLO dataset preparation and evaluation/preview scripts under `script_old/yolo_training/`;
+  - keypoint/bbox overlay helpers in `script/vitpose_training/pose_overlay_utils.py`;
+  - plot generation through `script/vitpose_training/plot_vitpose_training_log.py`;
+  - GT bbox visualization through `script_old/visualize_gt_bboxes.py`.
 
 ## 4. Checkpoints produced or removed
 
 ### VitPose++
 
-- Original `runs/vitposepp_single_head_subset_xyz_swap_ears/` training artifacts were treated as obsolete after the bbox convention and dataset changed.
+- Original `runs/vitposepp_subset_xyz_swap_ears/` training artifacts were treated as obsolete after the bbox convention and dataset changed.
 - Active work dir: `runs/vitposepp_side_above_water_aniso_20x25_min15/`
 - First anisotropic GT run was stopped after `epoch_4.pth`.
 - `epoch_1.pth`, `epoch_2.pth`, and `epoch_3.pth` were removed on request.

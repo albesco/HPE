@@ -1,0 +1,37 @@
+{
+  "project_root": "/home/albertosco/HPE",
+  "paths": {
+    "gt": {
+      "saw_frames": "data/intermediate/SAW_frames/_train_canonical/annotations/person_keypoints_test.json",
+      "saw_frames_entireswim": "data/intermediate/SAW_frames_EntireSwim/_train_canonical/annotations/person_keypoints_test.json"
+    },
+    "predictions": {
+      "direct": {
+        "saw_frames": {
+          "yolo": "data/output/experiments/yolo26x-pose_SAW_frames_20260614/kp_Test.json",
+          "vitpose": "data/output/experiments/vitpose_SAW_frames_20260615/kp_Test.json"
+        },
+        "saw_frames_entireswim": {
+          "yolo": "data/output/experiments/yolo26x-pose_SAW_frames_EntireSwim_20260612/kp_Test.json",
+          "vitpose": "data/output/experiments/vitpose_SAW_frames_EntireSwim_20260612/kp_Test.json"
+        }
+      },
+      "cross": {
+        "train_saw_frames_test_saw_frames_entireswim": {
+          "yolo": "data/output/experiments/pred_cross-train_20260618/yolo_train-SAW_frames_test-SAW_frames_EntireSwim_T-0/kp_Test.json",
+          "vitpose": "data/output/experiments/pred_cross-train_20260618/vitpose_train-SAW_frames_test-SAW_frames_EntireSwim_T-0/kp_Test.json"
+        }
+      }
+    },
+    "val_metrics": {
+      "saw_frames": {
+        "yolo": "runs/yolo26x-pose_SAW_frames_20260614/reports/val_metrics_by_epoch.csv",
+        "vitpose": "runs/vitpose_SAW_frames_20260615/reports/val_metrics_by_epoch.csv"
+      },
+      "saw_frames_entireswim": {
+        "yolo": "runs/yolo26x-pose_SAW_frames_EntireSwim_20260612/reports/val_metrics_by_epoch.csv",
+        "vitpose": "runs/vitpose_SAW_frames_EntireSwim_20260612/reports/val_metrics_by_epoch.csv"
+      }
+    }
+  }
+}

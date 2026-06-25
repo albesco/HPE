@@ -44,3 +44,8 @@ Before ending a long session or when context is becoming limited:
 7. Add or update an experiment note under `docs/ai/experiments/` for any reproducible training/eval run (include run id, config, and outcomes).
 
 Do not use chat history as the source of truth. Treat repository files and `docs/ai/` as the durable source of truth.
+
+Use clear, professional language with concise sentences. Avoid excessive detail and give details only on request.
+Verbose mode: low
+
+Memory hygiene rule: only durable decisions, important project facts, and important results should be recorded in `docs/ai/`. Transient attempts, failed intermediate states, scratch commands, and discarded artifacts should not be consolidated; if they were recorded temporarily and later discarded, remove or supersede them so the memory reflects the final useful state.

@@ -76,17 +76,17 @@ Which checkpoint should be used for the next training/evaluation decision is not
 ## Config and launchers
 
 - VitPose++ config:
-  - `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_single_head_swap_ears.py`
+  - `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_vitposepp_swap_ears.py`
 - VitPose++ tmux/resume launcher:
-  - `script/run_resume_side_above_water_to_25ep_tmux.sh`
+  - `script_old/run_resume_side_above_water_to_25ep_tmux.sh`
 - Original 10-epoch launcher:
-  - `script/run_train_side_above_water_10ep.sh`
+  - `script_old/run_train_side_above_water_10ep.sh`
 - YOLO training launcher:
-  - `script/yolo_training/train_yolo_side_above_water.sh`
+  - `script_old/yolo_training/train_yolo_side_above_water.sh`
 - YOLO dataset preparation:
-  - `script/yolo_training/prepare_yolo_detection_dataset.py`
+  - `script/dataset_preparation/prepare_yolo_detection_dataset.py`
 
-Launcher values reconstructed from `script/run_resume_side_above_water_to_25ep_tmux.sh`:
+Launcher values reconstructed from `script_old/run_resume_side_above_water_to_25ep_tmux.sh`:
 
 - default work dir: `runs/vitposepp_side_above_water_aniso_20x25_min15`
 - default resume source: `runs/vitposepp_side_above_water_aniso_20x25_min15/epoch_4.pth`
@@ -194,3 +194,8 @@ The plot files are documented as older than the epoch-25 metric table.
 - Details present only in compacted chat memory and not copied into `docs/ai/`.
 - Whether the tmux process is active without running a process command.
 - Human visual judgments that were not written into a persisted document.
+
+## Post-consolidation notes
+
+- 2026-05-28 memory simplification: the temporary/superseded experiment cards listed in the historical "Files read" section were removed from `docs/ai/experiments/`.
+- Consolidated durable results now live in `docs/ai/tests-and-results.md`, `docs/ai/context.md`, and the retained experiment cards under `docs/ai/experiments/`.

@@ -21,16 +21,16 @@ This session continued the Side_above_water VitPose++ training/evaluation workfl
 
 ## Files modified or added
 
-- `script/run_resume_side_above_water_to_25ep_tmux.sh`
-- `script/run_train_side_above_water_10ep.sh`
-- `script/prepare_swimxyz_vitposepp_single_head.py`
-- `script/prepare_swimxyz_vitposepp_utils.py`
-- `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_single_head_swap_ears.py`
-- `script/plot_vitpose_training_log.py`
-- `script/plot_loss_map_summary.py`
-- `script/plot_vitpose_metrics_with_checkpoints.py`
-- `script/yolo_training/evaluate_yolo_plus_vitpose_map.py`
-- `script/yolo_training/render_yolo_vitpose_overlays_from_results.py`
+- `script_old/run_resume_side_above_water_to_25ep_tmux.sh`
+- `script_old/run_train_side_above_water_10ep.sh`
+- `script_old/prepare_swimxyz_vitposepp.py`
+- `script/dataset_preparation/prepare_swimxyz_vitposepp_utils.py`
+- `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_vitposepp_swap_ears.py`
+- `script/vitpose_training/plot_vitpose_training_log.py`
+- `script_old/plot_loss_map_summary.py`
+- `script/plot-metrics/plot_vitpose_metrics_with_checkpoints.py`
+- `script_old/yolo_training/evaluate_yolo_plus_vitpose_map.py`
+- `script_old/yolo_training/render_yolo_vitpose_overlays_from_results.py`
 - `docs/ai/context.md`
 - `docs/ai/task-board.md`
 - `docs/ai/chat-index.md`
@@ -45,19 +45,19 @@ This session continued the Side_above_water VitPose++ training/evaluation workfl
 Training resume to epoch 37, then stopped before checkpointing:
 
 ```bash
-TOTAL_EPOCHS=37 RESUME_FROM=/home/albertosco/HPE/runs/vitposepp_side_above_water_aniso_20x25_min15/latest.pth SESSION_NAME=vitpose_side_above_water_aniso_ep37 BASE_LOG=/home/albertosco/HPE/runs/vitposepp_side_above_water_aniso_20x25_min15/20260514_191100.log bash script/run_resume_side_above_water_to_25ep_tmux.sh
+TOTAL_EPOCHS=37 RESUME_FROM=/home/albertosco/HPE/runs/vitposepp_side_above_water_aniso_20x25_min15/latest.pth SESSION_NAME=vitpose_side_above_water_aniso_ep37 BASE_LOG=/home/albertosco/HPE/runs/vitposepp_side_above_water_aniso_20x25_min15/20260514_191100.log bash script_old/run_resume_side_above_water_to_25ep_tmux.sh
 ```
 
 Final training resume to epoch 40:
 
 ```bash
-TOTAL_EPOCHS=40 RESUME_FROM=/home/albertosco/HPE/runs/vitposepp_side_above_water_aniso_20x25_min15/epoch_30.pth SESSION_NAME=vitpose_side_above_water_aniso_ep40 BASE_LOG=/home/albertosco/HPE/runs/vitposepp_side_above_water_aniso_20x25_min15/20260514_191100.log bash script/run_resume_side_above_water_to_25ep_tmux.sh
+TOTAL_EPOCHS=40 RESUME_FROM=/home/albertosco/HPE/runs/vitposepp_side_above_water_aniso_20x25_min15/epoch_30.pth SESSION_NAME=vitpose_side_above_water_aniso_ep40 BASE_LOG=/home/albertosco/HPE/runs/vitposepp_side_above_water_aniso_20x25_min15/20260514_191100.log bash script_old/run_resume_side_above_water_to_25ep_tmux.sh
 ```
 
 Generate completed-epoch plots:
 
 ```bash
-conda run -n vitpose python script/plot_vitpose_training_log.py \
+conda run -n vitpose python script/vitpose_training/plot_vitpose_training_log.py \
   --log-file runs/vitposepp_side_above_water_aniso_20x25_min15/20260514_191100.log \
   --log-file runs/vitposepp_side_above_water_aniso_20x25_min15/20260516_100449.log \
   --output-dir data/intermediate/Side_above_water/_train_vitposepp_swap_ears/reports/training_plots \
@@ -67,7 +67,7 @@ conda run -n vitpose python script/plot_vitpose_training_log.py \
 Run YOLO+VitPose++ mAP experiment:
 
 ```bash
-conda run -n vitpose python script/yolo_training/evaluate_yolo_plus_vitpose_map.py \
+conda run -n vitpose python script_old/yolo_training/evaluate_yolo_plus_vitpose_map.py \
   --split test \
   --yolo-model runs/yolo_side_above_water/yolo26x_swimmer_gt_bbox_aniso_20x25y_min15_5ep/weights/best.pt \
   --vitpose-checkpoint runs/vitposepp_side_above_water_aniso_20x25_min15/best_AP_epoch_35.pth \
@@ -79,7 +79,7 @@ conda run -n vitpose python script/yolo_training/evaluate_yolo_plus_vitpose_map.
 Render corrected full-test overlays:
 
 ```bash
-conda run -n vitpose python script/yolo_training/render_yolo_vitpose_overlays_from_results.py \
+conda run -n vitpose python script_old/yolo_training/render_yolo_vitpose_overlays_from_results.py \
   --split test \
   --checkpoint runs/vitposepp_side_above_water_aniso_20x25_min15/best_AP_epoch_35.pth \
   --results-json data/output/experiments/EspYoloVitPose_mAP/test_20260516_202955/yolo_vitpose_keypoints_results.json \
@@ -89,10 +89,10 @@ conda run -n vitpose python script/yolo_training/render_yolo_vitpose_overlays_fr
 Validation commands:
 
 ```bash
-python -m py_compile script/plot_vitpose_training_log.py
-python -m py_compile script/yolo_training/evaluate_yolo_plus_vitpose_map.py script/yolo_training/render_yolo_vitpose_overlays_from_results.py
-bash -n script/run_resume_side_above_water_to_25ep_tmux.sh
-bash -n script/run_train_side_above_water_10ep.sh
+python -m py_compile script/vitpose_training/plot_vitpose_training_log.py
+python -m py_compile script_old/yolo_training/evaluate_yolo_plus_vitpose_map.py script_old/yolo_training/render_yolo_vitpose_overlays_from_results.py
+bash -n script_old/run_resume_side_above_water_to_25ep_tmux.sh
+bash -n script_old/run_train_side_above_water_10ep.sh
 ```
 
 ## Results

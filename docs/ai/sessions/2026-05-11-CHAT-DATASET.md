@@ -29,16 +29,16 @@
 - `docs/ai/chat-roles.md`
 - `docs/ai/decision-log.md`
 - `docs/ai/task-board.md`
-- `script/prepare_swimxyz_vitposepp_utils.py`
-- `script/prepare_swimxyz_vitposepp_single_head.py`
-- `script/kp_check_swimxyz_video_frames.py`
+- `script/dataset_preparation/prepare_swimxyz_vitposepp_utils.py`
+- `script_old/prepare_swimxyz_vitposepp.py`
+- `script_old/kp_check_swimxyz_video_frames.py`
 
 ### Modificati
 - `docs/ai/sessions/2026-05-11-CHAT-DATASET.md`
 
 ## 4. Decisioni prese
 - Non risultano decisioni dataset-format aggiunte in `docs/ai/decision-log.md` per questa sessione specifica.
-- Dalla repository corrente si ricava che il workflow attivo usa una pipeline consolidata SwimXYZ -> COCO17 -> VitPose++ single-head.
+- Dalla repository corrente si ricava che il workflow attivo usa una pipeline consolidata SwimXYZ -> COCO17 -> VitPose++ standard.
 - L’adozione esatta di questa pipeline durante la sessione originaria del `2026-05-11` è `not reconstructible from this session`.
 
 ## 5. Schema SwimXYZ ricostruito o ancora incerto
@@ -48,8 +48,8 @@
 - La repository corrente usa `data/input/subset_xyz` come sorgente normalizzata e `data/intermediate/<dataset>/_converted/` come layout intermedio.
 - I file label “COCO” di SwimXYZ:
   - mantengono un header BODY25;
-  - ma possono essere serializzati nel formato compatto `SWIMXYZ_COCO18_ORDER` definito in `script/prepare_swimxyz_vitposepp_utils.py`.
-- In `script/prepare_swimxyz_vitposepp_utils.py` sono esplicitati:
+  - ma possono essere serializzati nel formato compatto `SWIMXYZ_COCO18_ORDER` definito in `script/dataset_preparation/prepare_swimxyz_vitposepp_utils.py`.
+- In `script/dataset_preparation/prepare_swimxyz_vitposepp_utils.py` sono esplicitati:
   - `EXPECTED_TRAILING_MISSING_HEADERS`
   - `SWIMXYZ_COCO18_ORDER`
   - `BODY25_TO_COCO`
@@ -77,21 +77,21 @@
     - `num_keypoints`
     - `area`
   - 17 keypoint target COCO;
-  - training config single-head basata su:
+  - training config standard basata su:
     - `src/vitpose_base/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/vitPose+_huge_coco+aic+mpii+ap10k+apt36k+wholebody_256x192_udp.py`
 - La repository corrente indica anche una variante attiva “swap ears / swap eyes” in:
-  - `script/prepare_swimxyz_vitposepp_single_head.py`
+  - `script_old/prepare_swimxyz_vitposepp.py`
 - Se questa ipotesi facesse già parte della sessione originaria del `2026-05-11` è `not reconstructible from this session`.
 
 ## 7. Script di conversione creati o modificati
 
 ### Ricostruibili nella repository corrente
   - oggi funge da step di normalizzazione/riorganizzazione del dataset sorgente verso `data/intermediate`.
-- `script/prepare_swimxyz_vitposepp_utils.py`
+- `script/dataset_preparation/prepare_swimxyz_vitposepp_utils.py`
   - utility condivise per parsing label, mapping SwimXYZ -> COCO17, bbox, split, export JSON.
-- `script/prepare_swimxyz_vitposepp_single_head.py`
-  - entrypoint di preparazione dataset/train config per la pipeline attiva single-head.
-- `script/prepare_swimxyz_vitposepp_train.py`
+- `script_old/prepare_swimxyz_vitposepp.py`
+  - entrypoint di preparazione dataset/train config per la pipeline attiva standard.
+- `script_old/prepare_swimxyz_vitposepp_train.py`
   - wrapper/entrypoint del flusso di preparazione training; nello stato corrente della repository ingloba anche la normalizzazione del dataset sorgente quando richiesto.
 
 ### Non ricostruibile con certezza
@@ -99,11 +99,11 @@
 - Nella chat di lavoro esistono riferimenti a script precedenti o percorsi oggi non presenti come file attivi; la loro cronologia esatta non è ricostruibile dal solo stato corrente della repository.
 
 ## 8. Script di validazione
-- `script/kp_check_swimxyz_video_frames.py`
+- `script_old/kp_check_swimxyz_video_frames.py`
   - valida l’allineamento frame/label renderizzando keypoint e, opzionalmente, bbox.
-- `script/preview_test_predictions.py`
+- `script_old/preview_test_predictions.py`
   - presente in repo come strumento di preview qualitativa su dataset preparato.
-- `script/compare_test_overlays.py`
+- `script_old/compare_test_overlays.py`
   - presente in repo per confronto overlay.
 - Non esiste, nello stato corrente, un file chiaramente nominato `validate_vitpose_dataset.py`; quindi il nome preciso di un eventuale validatore originario è `not reconstructible from this session`.
 
@@ -113,7 +113,7 @@
 
 ## 10. Risultati
 - Stato corrente ricostruibile:
-  - esiste una pipeline consolidata SwimXYZ -> dataset COCO17 -> VitPose++ single-head;
+  - esiste una pipeline consolidata SwimXYZ -> dataset COCO17 -> VitPose++ standard;
   - il parsing dei file SwimXYZ include gestione esplicita di righe compatte / trailing missing headers;
   - è disponibile almeno uno script per verifica qualitativa frame/label.
 - Il risultato preciso conseguito al termine della sessione originaria del `2026-05-11` è `not reconstructible from this session`.
@@ -195,9 +195,9 @@ Attivita precise della chat originaria del 2026-05-11: `not reconstructible from
 - `docs/ai/decision-log.md`
 - `docs/ai/task-board.md`
 - `docs/ai/tests-and-results.md`
-- `script/prepare_swimxyz_vitposepp_utils.py`
-- `script/prepare_swimxyz_vitposepp_single_head.py`
-- `script/remove_anomalous_frames_from_dataset.py`
+- `script/dataset_preparation/prepare_swimxyz_vitposepp_utils.py`
+- `script_old/prepare_swimxyz_vitposepp.py`
+- `script_old/remove_anomalous_frames_from_dataset.py`
 - `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/reports/preparation_report.json`
 
 ### Modificati
@@ -211,7 +211,7 @@ Altri file modificati nella working tree al momento della lettura risultano pres
 Decisioni o convenzioni dataset ricostruibili dallo stato corrente:
 
 - Il formato target attivo e COCO17 top-down compatibile con MMPose/VitPose++.
-- La pipeline attiva usa VitPose++ single-head.
+- La pipeline attiva usa VitPose++ standard.
 - Le coordinate Y SwimXYZ vengono convertite con `flip_y=True`.
 - `z` nelle label SwimXYZ non viene trattata come confidence.
 - La visibility viene derivata dalla posizione X:
@@ -271,7 +271,7 @@ Formato target corrente ricostruibile:
   - `num_keypoints`
   - `keypoints`
 - Keypoint target: COCO17.
-- Config generato: VitPose++ single-head basato su config MMPose/VitPose++ sotto `src/vitpose_base/configs/.../vitPose+_huge_coco+aic+mpii+ap10k+apt36k+wholebody_256x192_udp.py`.
+- Config generato: VitPose++ standard basato su config MMPose/VitPose++ sotto `src/vitpose_base/configs/.../vitPose+_huge_coco+aic+mpii+ap10k+apt36k+wholebody_256x192_udp.py`.
 - Overlay di verifica:
   - generati come `*_with-KP.jpg`;
   - contengono skeleton e punti;
@@ -285,7 +285,7 @@ Script attivi ricostruibili:
   - copia video e label;
   - genera `manifest.json`;
   - genera sidecar `*_coco.json` per label COCO 2D.
-- `script/prepare_swimxyz_vitposepp_utils.py`
+- `script/dataset_preparation/prepare_swimxyz_vitposepp_utils.py`
   - parsing label SwimXYZ;
   - mapping SwimXYZ -> COCO17;
   - calcolo visibility;
@@ -293,14 +293,14 @@ Script attivi ricostruibili:
   - split train/val/test;
   - export JSON COCO;
   - overlay `*_with-KP.jpg`.
-- `script/prepare_swimxyz_vitposepp_single_head.py`
-  - prepara dataset VitPose++ single-head;
+- `script_old/prepare_swimxyz_vitposepp.py`
+  - prepara dataset VitPose++ standard;
   - applica swap occhi/orecchie;
   - rileva e scarta frame con bbox anomala;
   - genera config di training.
-- `script/prepare_swimxyz_vitposepp_train.py`
+- `script_old/prepare_swimxyz_vitposepp_train.py`
   - wrapper CLI della pipeline ufficiale.
-- `script/remove_anomalous_frames_from_dataset.py`
+- `script_old/remove_anomalous_frames_from_dataset.py`
   - rimuove da un dataset gia costruito i frame indicati dal log `anomalous_bbox_shift`;
   - aggiorna immagini, overlay e JSON COCO.
 
@@ -310,18 +310,18 @@ Quali script siano stati creati esattamente durante la sessione originaria del 2
 
 Script di validazione o controllo qualitativo ricostruibili:
 
-- `script/kp_check_swimxyz_video_frames.py`
+- `script_old/kp_check_swimxyz_video_frames.py`
   - renderizza frame specifici o tutti i frame di un video;
   - usa label SwimXYZ e mapping COCO17;
   - puo mostrare skeleton, punti e bbox;
   - usato per controllare allineamento frame/label.
-- `script/compare_test_overlays.py`
+- `script_old/compare_test_overlays.py`
   - script presente nel repository per confronto overlay.
-- `script/preview_test_predictions.py`
+- `script_old/preview_test_predictions.py`
   - script presente nel repository per preview predizioni.
-- `script/visualize_gt_bboxes.py`
+- `script_old/visualize_gt_bboxes.py`
   - script presente nel repository per visualizzare bbox GT.
-- `script/visualize_gt_vs_pred_keypoints.py`
+- `script_old/visualize_gt_vs_pred_keypoints.py`
   - script presente nel repository per confronto GT vs predizioni.
 
 Un validatore formale chiamato `validate_vitpose_dataset.py` non risulta presente nei file letti; se sia esistito nella sessione originaria e `not reconstructible from this session`.
@@ -352,7 +352,7 @@ Risultati dataset ricostruibili dallo stato corrente:
 - Report locale:
   - `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/reports/preparation_report.json`
 - Config generato:
-  - `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_single_head_swap_ears.py`
+  - `data/intermediate/Side_above_water/_train_vitposepp_swap_ears/generated_configs/swimxyz_vitposepp_huge_vitposepp_swap_ears.py`
 - Conteggi correnti dopo esclusione anomalie:
   - train: `18181`
   - val: `5195`

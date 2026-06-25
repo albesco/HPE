@@ -68,58 +68,75 @@ Il file `environment.example.yml` documenta la base Conda/Pip, ma PyTorch CUDA e
 La root `script/` contiene solo gli script della pipeline consolidata:
 
 ```text
-CSV-2-JSON_Keypoint-Conversion.py
 kp_check_swimxyz_video_frames.py
 prepare_swimxyz_vitposepp_utils.py
 prepare_swimxyz_vitposepp_single_head.py
 prepare_swimxyz_vitposepp_train.py
 ```
 
-Gli script storici o sperimentali sono stati spostati in `script/old_trials/`.
+Gli script storici o sperimentali sono stati spostati in `script_old/old_trials/`.
 
 ## Verifica ambiente
 
 ```bash
-python script/old_trials/smoke_test.py
+python script_old/old_trials/smoke_test.py
 ```
 
-## Conversione in `intermediate`
+## Preparazione dataset consolidata
 
 ```bash
-conda run -n vitpose python script/CSV-2-JSON_Keypoint-Conversion.py \
+conda run -n vitpose python script_old/prepare_swimxyz_vitposepp_train.py \
   --source-root data/input/subset_xyz \
-  --output-root data/intermediate
+  --intermediate-root data/intermediate
 ```
 
 Questo step:
 
-- copia video e label nella struttura `data/intermediate/<dataset>/_converted`
+- normalizza i video e le label SwimXYZ nella struttura `data/intermediate/<dataset>/_converted`
 - genera il `manifest.json` usato dagli step successivi
-- genera i sidecar `*_coco.json` per le label `COCO/2D`
+- pulisce e converte i keypoint nella rappresentazione COCO17 usata da VitPose++
+- genera il dataset finale pronto per il training/inferenza top-down:
+  - `train2017`, `val2017`, `test2017`
+  - `annotations/person_keypoints_{train,val,test}.json`
+  - overlay `*_with-KP.jpg`
+  - `reports/preparation_report.json`
+  - `generated_configs/...py`
 
-## Preparazione dataset VitPose++
+Se i dati sono gia stati normalizzati in `data/intermediate/.../_converted`, si puo partire da li:
 
 ```bash
-conda run -n vitpose python script/prepare_swimxyz_vitposepp_train.py \
+conda run -n vitpose python script_old/prepare_swimxyz_vitposepp_train.py \
   --dataset-root data/intermediate
 ```
 
 Per un singolo video si può usare:
 
 ```bash
-conda run -n vitpose python script/prepare_swimxyz_vitposepp_train.py \
+conda run -n vitpose python script_old/prepare_swimxyz_vitposepp_train.py \
   --dataset-entry "path/video.webm::path/label__COCO__2D_cam.txt" \
-  --output-root data/intermediate/<dataset>/<video>_train_vitposepp_swap_ears
+  --output-root data/intermediate/<dataset>/<video>_train_canonical
 ```
 
-L'output contiene:
+## Preparazione dataset model-specific
 
-- `train2017`, `val2017`, `test2017`
-- i corrispondenti overlay `*_with-KP.jpg`
-- `annotations/person_keypoints_{train,val,test}.json`
-- `annotations/dataset_exceptions.log`
-- `reports/preparation_report.json`
-- `generated_configs/...py`
+Una volta ottenuto il dataset canonico `_train_canonical`, gli exporter
+model-specific operano solo sulle label/config e non preparano immagini:
+
+```bash
+conda run -n vitpose python script/dataset_preparation-cleaning/prepare_vitposepp_dataset.py --overwrite
+conda run -n vitpose python script/dataset_preparation-cleaning/prepare_yolo_detection_dataset.py --overwrite
+conda run -n vitpose python script/dataset_preparation-cleaning/prepare_yolo_pose_dataset.py --overwrite
+```
+
+In questo modo la pipeline dati consolidata diventa:
+
+1. `data/input/subset_xyz/...`
+2. `script_old/prepare_swimxyz_vitposepp_train.py --source-root ...`
+3. `data/intermediate/<dataset>/_converted`
+4. `data/intermediate/<dataset>/_train_canonical`
+5. `data/intermediate/<dataset>/_VitPosePP`
+6. `data/intermediate/<dataset>/_Yolo26x_detection`
+7. `data/intermediate/<dataset>/_Yolo26x_pose`
 
 ## Logica consolidata
 
@@ -132,14 +149,16 @@ L'output contiene:
 - logging dei salti anomali della bounding box
 - overlay finali con soli skeleton e punti, senza etichette
 
-Il dettaglio operativo aggiornato è documentato in `note.md`.
+Il consolidamento storico del data cleaning è documentato in
+`docs/ai/data-cleaning-consolidation.md`; lo stato operativo aggiornato è in
+`docs/ai/context.md` e `docs/ai/handoff.md`.
 
 ## Verifica visiva
 
 Per controllare frame singoli o l'intero video:
 
 ```bash
-conda run -n vitpose python script/kp_check_swimxyz_video_frames.py \
+conda run -n vitpose python script_old/kp_check_swimxyz_video_frames.py \
   --video path/video.webm \
   --labels path/label__COCO__2D_cam.txt \
   --frames 10 20 30 \
@@ -150,7 +169,7 @@ conda run -n vitpose python script/kp_check_swimxyz_video_frames.py \
 Oppure:
 
 ```bash
-conda run -n vitpose python script/kp_check_swimxyz_video_frames.py \
+conda run -n vitpose python script_old/kp_check_swimxyz_video_frames.py \
   --video path/video.webm \
   --labels path/label__COCO__2D_cam.txt \
   --all-frames \

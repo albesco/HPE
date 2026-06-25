@@ -3,28 +3,32 @@ import argparse
 import copy
 import os
 import os.path as osp
+import re
 import time
 import warnings
+from typing import Any, Dict, Optional
 
 import mmcv
 import torch
 from mmcv import Config, DictAction
-from mmcv.runner import get_dist_info, init_dist, set_random_seed
+from mmcv.parallel import MMDataParallel
+from mmcv.runner import get_dist_info, init_dist, load_checkpoint, set_random_seed
 from mmcv.utils import get_git_hash
 
 from mmpose import __version__
-from mmpose.apis import init_random_seed, train_model
-from mmpose.datasets import build_dataset
+from mmpose.apis import init_random_seed, single_gpu_test, train_model
+from mmpose.datasets import build_dataloader, build_dataset
 from mmpose.models import build_posenet
 from mmpose.utils import collect_env, get_root_logger, setup_multi_processes
-import mmcv_custom
+
+import mmcv_custom  # noqa: F401
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a pose model')
     parser.add_argument('config', help='train config file path')
     parser.add_argument('--work-dir', help='the dir to save logs and models')
-    parser.add_argument(
-        '--resume-from', help='the checkpoint file to resume from')
+    parser.add_argument('--resume-from', help='the checkpoint file to resume from')
     parser.add_argument(
         '--log-interval',
         type=int,
@@ -43,6 +47,7 @@ def parse_args():
         '--no-validate',
         action='store_true',
         help='whether not to evaluate the checkpoint during training')
+
     group_gpus = parser.add_mutually_exclusive_group()
     group_gpus.add_argument(
         '--gpus',
@@ -61,6 +66,7 @@ def parse_args():
         default=0,
         help='id of gpu to use '
         '(only applicable to non-distributed training)')
+
     parser.add_argument('--seed', type=int, default=None, help='random seed')
     parser.add_argument(
         '--deterministic',
@@ -84,11 +90,78 @@ def parse_args():
         '--autoscale-lr',
         action='store_true',
         help='automatically scale lr with the number of gpus')
+
+    parser.add_argument(
+        '--final-test',
+        action='store_true',
+        help='run a final evaluation on cfg.data.test after training finishes')
+    parser.add_argument(
+        '--final-test-checkpoint',
+        default=None,
+        help='checkpoint to evaluate for --final-test; defaults to best_* then latest.pth under work_dir')
+    parser.add_argument(
+        '--final-test-out',
+        default=None,
+        help='write final test metrics JSON to this path (default: <work_dir>/test_metrics.json)')
+
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
 
     return args
+
+
+def _epoch_num(path: str) -> int:
+    m = re.search(r'epoch_(\d+)', osp.basename(path))
+    return int(m.group(1)) if m else -1
+
+
+def _pick_final_test_checkpoint(work_dir: str) -> Optional[str]:
+    best_ckpts = [
+        osp.join(work_dir, p)
+        for p in mmcv.scandir(work_dir, suffix='.pth', recursive=False)
+        if p.startswith('best_')
+    ]
+    if best_ckpts:
+        return sorted(best_ckpts, key=_epoch_num)[-1]
+
+    latest = osp.join(work_dir, 'latest.pth')
+    if osp.isfile(latest):
+        return latest
+
+    epoch_ckpts = [
+        osp.join(work_dir, p)
+        for p in mmcv.scandir(work_dir, suffix='.pth', recursive=False)
+        if p.startswith('epoch_')
+    ]
+    if epoch_ckpts:
+        return sorted(epoch_ckpts, key=_epoch_num)[-1]
+
+    return None
+
+
+def _run_final_test(cfg: Config, checkpoint_path: str) -> Dict[str, Any]:
+    dataset = build_dataset(cfg.data.test, dict(test_mode=True))
+
+    loader_cfg: Dict[str, Any] = dict(seed=cfg.get('seed'), drop_last=False, dist=False)
+    test_loader_cfg: Dict[str, Any] = {
+        **loader_cfg,
+        **dict(shuffle=False, drop_last=False),
+        **dict(workers_per_gpu=cfg.data.get('workers_per_gpu', 1)),
+        **dict(samples_per_gpu=cfg.data.get('samples_per_gpu', 1)),
+        **cfg.data.get('test_dataloader', {}),
+    }
+    data_loader = build_dataloader(dataset, **test_loader_cfg)
+
+    model = build_posenet(cfg.model)
+    load_checkpoint(model, checkpoint_path, map_location='cpu')
+
+    model = MMDataParallel(model, device_ids=cfg.gpu_ids)
+    outputs = single_gpu_test(model, data_loader)
+
+    eval_config: Dict[str, Any] = cfg.get('evaluation', {}).copy()
+    eval_config.update(dict(metric=['mAP']))
+    return dataset.evaluate(outputs, cfg.work_dir, **eval_config)
 
 
 def main():
@@ -112,35 +185,40 @@ def main():
         cfg.work_dir = args.work_dir
     elif cfg.get('work_dir', None) is None:
         # use config filename as default work_dir if cfg.work_dir is None
-        cfg.work_dir = osp.join('./work_dirs',
-                                osp.splitext(osp.basename(args.config))[0])
+        cfg.work_dir = osp.join('./work_dirs', osp.splitext(osp.basename(args.config))[0])
+
     if args.resume_from is not None:
         cfg.resume_from = args.resume_from
+
     if args.log_interval is not None:
         if 'log_config' not in cfg:
             cfg.log_config = dict(interval=args.log_interval, hooks=[dict(type='TextLoggerHook')])
         else:
             cfg.log_config['interval'] = args.log_interval
+
     if args.status_file is not None:
         status_interval = args.status_interval
         if status_interval is None:
             status_interval = args.log_interval
         if status_interval is None:
             status_interval = cfg.get('log_config', {}).get('interval', 50)
-        cfg.status_monitor = dict(
-            path=args.status_file,
-            interval=max(1, int(status_interval)))
+        cfg.status_monitor = dict(path=args.status_file, interval=max(1, int(status_interval)))
+
     if args.gpus is not None:
         cfg.gpu_ids = range(1)
-        warnings.warn('`--gpus` is deprecated because we only support '
-                      'single GPU mode in non-distributed training. '
-                      'Use `gpus=1` now.')
+        warnings.warn(
+            ' is deprecated because we only support '
+            'single GPU mode in non-distributed training. '
+            'Use  now.')
+
     if args.gpu_ids is not None:
         cfg.gpu_ids = args.gpu_ids[0:1]
-        warnings.warn('`--gpu-ids` is deprecated, please use `--gpu-id`. '
-                      'Because we only support single GPU mode in '
-                      'non-distributed training. Use the first GPU '
-                      'in `gpu_ids` now.')
+        warnings.warn(
+            ' is deprecated, please use . '
+            'Because we only support single GPU mode in '
+            'non-distributed training. Use the first GPU '
+            'in  now.')
+
     if args.gpus is None and args.gpu_ids is None:
         cfg.gpu_ids = [args.gpu_id]
 
@@ -166,6 +244,7 @@ def main():
 
     # create work_dir
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
+
     # init the logger before other steps
     timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
     log_file = osp.join(cfg.work_dir, f'{timestamp}.log')
@@ -173,13 +252,13 @@ def main():
 
     # init the meta dict to record some important information such as
     # environment info and seed, which will be logged
-    meta = dict()
+    meta: Dict[str, Any] = dict()
+
     # log env info
     env_info_dict = collect_env()
     env_info = '\n'.join([(f'{k}: {v}') for k, v in env_info_dict.items()])
     dash_line = '-' * 60 + '\n'
-    logger.info('Environment info:\n' + dash_line + env_info + '\n' +
-                dash_line)
+    logger.info('Environment info:\n' + dash_line + env_info + '\n' + dash_line)
     meta['env_info'] = env_info
 
     # log some basic info
@@ -192,8 +271,7 @@ def main():
 
     # set random seeds
     seed = init_random_seed(args.seed)
-    logger.info(f'Set random seed to {seed}, '
-                f'deterministic: {args.deterministic}')
+    logger.info(f'Set random seed to {seed}, deterministic: {args.deterministic}')
     set_random_seed(seed, deterministic=args.deterministic)
     cfg.seed = seed
     meta['seed'] = seed
@@ -213,6 +291,7 @@ def main():
             mmpose_version=__version__ + get_git_hash(digits=7),
             config=config_text,
         )
+
     train_model(
         model,
         datasets,
@@ -221,6 +300,29 @@ def main():
         validate=(not args.no_validate),
         timestamp=timestamp,
         meta=meta)
+
+    if args.final_test:
+        if distributed:
+            logger.warning('Skipping --final-test in distributed mode.')
+            return
+
+        checkpoint_path = args.final_test_checkpoint
+        if checkpoint_path is None:
+            checkpoint_path = _pick_final_test_checkpoint(cfg.work_dir)
+
+        if checkpoint_path is None:
+            logger.warning(f'--final-test requested but no checkpoint found under: {cfg.work_dir}')
+            return
+
+        metrics = _run_final_test(cfg, checkpoint_path)
+        ap = metrics.get('AP')
+        ap50 = metrics.get('AP50')
+        logger.info(f'Final test checkpoint: {checkpoint_path}')
+        logger.info(f'Final test metrics: AP(mAP50-95)={ap} AP50(mAP50)={ap50}')
+
+        out_path = args.final_test_out or osp.join(cfg.work_dir, 'test_metrics.json')
+        mmcv.dump(metrics, out_path)
+        logger.info(f'Wrote final test metrics JSON: {out_path}')
 
 
 if __name__ == '__main__':
