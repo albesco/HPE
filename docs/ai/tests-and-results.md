@@ -6,6 +6,7 @@ This file tracks validation commands, training/evaluation outcomes, and importan
 
 | Date | Area | Run | Result | Notes |
 |---|---|---|---|---|
+| 2026-07-01 | YOLO26x-Pose training | `yolo26x-pose_SUW_frames_20260701` | launched in tmux | dataset `data/intermediate/SUW_frames`; session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260701`; pretrained `models/pose/yolo26x-pose.pt`; `imgsz=768`, `lr0=0.001`, `batch=1`, `device=0`, `epochs=100`; external monitor `patience=3`, `min_delta=0.007`, keep last `10`; metrics pending. |
 | 2026-06-24 | AI memory consolidation | `docs/ai` source-of-truth cleanup | completed | `handoff.md` deprecated as operational source; current state belongs in `context.md`, active work in `task-board.md`, decisions in `decision-log.md`, results in `tests-and-results.md`; `script/` is operational and `script_old/` is legacy/archive. |
 | 2026-06-24 | `script/` safe migration | consolidated operational script tree | static validation passed | `python3 -m py_compile` passed for all Python files; `bash -n` passed for all shell files; `--help` smoke checks passed for dataset prep, YOLO/VitPose training, YOLO/VitPose prediction, overlays, HPE report tables, and plot-metrics entrypoints. Final cutover completed: current root is `script/`; previous broad tree is `script_old/`. |
 | 2026-06-17 | HPE report direct/cross metrics | `script/hpe_report/build_hpe_report_tables.py` + `20260617_Report_Fine-Tuning_Senza-Immagini.pptx` | report tables documented | Direct Test AP from slide 8: `SAW_frames_EntireSwim` YOLO `0.93190`, VitPose++ `0.97822`; `SAW_frames` YOLO `0.87474`, VitPose++ `0.93288`. Cross Train `SAW_frames` -> Test `SAW_frames_EntireSwim` thresholded AP from slide 16: YOLO `0.9774`, VitPose++ `0.9914`; without threshold: YOLO `0.9854`, VitPose++ `0.9914`. |
@@ -290,3 +291,17 @@ Result:
 - Dataset: `data/intermediate/SAW_frames_EntireSwim`, sampled Test view with `--max-test-items 1 --seed 1 --conf 0`.
 - Fix verified: effective config uses crop `384x128`, heatmap `96x32`, and backbone `img_size=(128,384)`.
 - Result: CPU smoke run completed under `/tmp/vitpose_pred_smoke_crop384/`, wrote `metrics_Test.json`, `kp_Test.json`, `result_keypoints.json`, and one overlay; single-frame AP was `1.0`.
+## 2026-07-01: SUW_frames dataset preparation launched
+
+- Raw input: `data/input/subset_xyz/SUW_frames`.
+- Preflight counts: `15000` images and `15000` `__COCO__2D_cam.txt` labels.
+- Output root: `data/intermediate/SUW_frames`.
+- Launcher: `script/dataset_preparation-cleaning/run_prepare_swimxyz_frames_dataset_tmux.sh`.
+- Entrypoint: `script/dataset_preparation-cleaning/prepare_swimxyz_frames_dataset.py`.
+- tmux session: `prepare_SUW_frames_dataset`.
+- Log: `logs/prepare_SUW_frames_dataset_20260701_181926.log`.
+- Result: completed; accepted `8634/15000` samples and rejected `6366` with `no_valid_keypoints`.
+- Canonical split counts: train `6044`, val `1727`, test `863`.
+- VitPose++ export counts match canonical annotations: train `6044`, val `1727`, test `863`.
+- YOLO26x detection labels verified: train `6044`, val `1727`, test `863`, all rows have `5` fields.
+- YOLO26x pose labels verified: train `6044`, val `1727`, test `863`, all rows have `56` fields.

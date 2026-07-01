@@ -116,6 +116,7 @@ Latest plots:
 - YOLO OOM diagnostic: `logs/yolo_diagnostic_1280_b8_20260513_135040.log`; `yolo26x.pt`, `imgsz=1280`, `batch=8` exhausted 32 GB V100.
 
 ## YOLO26x pose state
+- SUW_frames YOLO26x-Pose training launched on 2026-07-01 via tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260701` using `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh` and dataset `data/intermediate/SUW_frames`; normalized run name `yolo26x-pose_SUW_frames_20260701`, run dir `runs/yolo26x-pose_SUW_frames_20260701/`, Test outputs target `data/output/experiments/yolo26x-pose_SUW_frames_20260701/`; metrics pending.
 - Dataset root: `data/intermediate/Side_above_water/_Yolo26x_pose/`.
 - Data YAML: `data/intermediate/Side_above_water/_Yolo26x_pose/swimxyz_side_above_water_yolo26x_pose.yaml`.
 - Converter: `script/dataset_preparation-cleaning/prepare_yolo_pose_dataset.py`; default `--link-mode symlink`.
@@ -177,6 +178,13 @@ Latest plots:
 ## Open questions / next work
 - Full `YoloVitPose_mAP` test evaluation is pending; port or recreate the historical `script_old/yolo_training/evaluate_yolo_vitpose_map.py` workflow under `script/` before reporting new end-to-end AP.
 - Use the consolidated visualization directory to inspect remaining YOLO no-detection cases and decide whether to tune YOLO confidence/fallback behavior.
+
+## SUW_frames Prepared Dataset
+
+- `data/intermediate/SUW_frames/` was prepared from raw `data/input/subset_xyz/SUW_frames/` on 2026-07-01 using `script/dataset_preparation-cleaning/prepare_swimxyz_frames_dataset.py` via tmux session `prepare_SUW_frames_dataset`.
+- Raw preflight counts were `15000` images and `15000` `__COCO__2D_cam.txt` labels; final accepted samples were `8634`, with `6366` rejected as `no_valid_keypoints`.
+- Final split counts are train `6044`, val `1727`, test `863` across `_train_canonical`, `_VitPosePP`, `_Yolo26x_detection`, and `_Yolo26x_pose`.
+- YOLO26x detection labels have `5` fields per row; YOLO26x pose labels have `56` fields per row.
 
 ## Execution convention
 - For heavy/long-running scripts, launch via `tmux` by default so sessions survive disconnects and can be monitored/attached later.

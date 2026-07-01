@@ -96,6 +96,11 @@ resolve_dataset_yaml() {
     return 0
   fi
 
+  if [[ -f "${dataset_abs}/_Yolo26x_pose/swimxyz_side_above_water_yolo26x_pose.yaml" ]]; then
+    echo "${dataset_abs}/_Yolo26x_pose/swimxyz_side_above_water_yolo26x_pose.yaml"
+    return 0
+  fi
+
   if [[ "$(basename "${dataset_abs}")" == "_train_canonical" ]]; then
     local sibling_pose_dir
     sibling_pose_dir="$(cd "${dataset_abs}/.." && pwd)/_Yolo26x_pose"

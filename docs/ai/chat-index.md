@@ -3,6 +3,20 @@
 This file tracks Codex chat sessions for this repository.
 
 ## Active / Recent
+### CHAT-YOLO26-POSE-SUW-20260701
+- Logical title: YOLO26x-Pose SUW_frames training
+- Role: training / YOLO pose
+- Status: active
+- Purpose: train YOLO26x-Pose on `data/intermediate/SUW_frames` with run name `yolo26x-pose_SUW_frames_20260701`
+- Outcome: tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260701` launched; metrics pending
+- Key files:
+  - `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`
+  - `data/intermediate/SUW_frames/_Yolo26x_pose/swimxyz_side_above_water_yolo26x_pose.yaml`
+  - `runs/yolo26x-pose_SUW_frames_20260701/args.yaml`
+  - `runs/yolo26x-pose_SUW_frames_20260701/logs/train.log`
+  - `docs/ai/sessions/2026-07-01-CHAT-YOLO26-POSE-SUW-20260701.md`
+- Started: 2026-07-01 (UTC)
+
 ### CHAT-DOCS-ai-memory-consolidation
 - Logical title: AI memory consolidation
 - Role: documentation / AI memory maintenance

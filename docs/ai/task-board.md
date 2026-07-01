@@ -7,8 +7,10 @@
 - Decide whether YOLO no-detection cases need confidence tuning or fallback behavior.
 
 ## In progress
+- YOLO26x-Pose training in progress: `yolo26x-pose_SUW_frames_20260701` launched via tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260701` on `data/intermediate/SUW_frames` using `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`; outputs target `runs/yolo26x-pose_SUW_frames_20260701/` and `data/output/experiments/yolo26x-pose_SUW_frames_20260701/`.
 
 ## Done
+- Prepared `data/intermediate/SUW_frames/` from raw `data/input/subset_xyz/SUW_frames/` with `script/dataset_preparation-cleaning/prepare_swimxyz_frames_dataset.py`; accepted `8634/15000` samples, rejected `6366` with `no_valid_keypoints`, and regenerated `_train_canonical`, `_VitPosePP`, `_Yolo26x_detection`, and `_Yolo26x_pose` with split counts train `6044`, val `1727`, test `863`.
 - Consolidated AI memory: `handoff.md` is deprecated as a source of truth; current state lives in `context.md`, active work in `task-board.md`, decisions in `decision-log.md`, and results in `tests-and-results.md`; current scripts live in `script/`, while `script_old/` is legacy/archive.
 - Added `script/overlays/overlay_sample_comparison.py` to compare Yolo26x-Pose and VitPose++ overlays on random Test frames, with original-frame copies and per-model overlay outputs.
 - Prepared the SAW_frames YOLO26x-Pose launcher set: `script_old/yolo_training/train_yolo26x_pose_SAW_frames_EntireSwim_20260612.sh`, `script_old/yolo_training/run_yolo26x_pose_SAW_frames_EntireSwim_20260612_tmux.sh`, `script/yolo26x_pose_training/export_yolo_pose_training_report.py`, and the updated `script/yolo26x_pose_training/evaluate_yolo_pose_split.py`; the run will use pretrained `yolo26x-pose.pt`, `imgsz=768`, `lr0=0.00100`, early stopping `patience=3` / `min_delta=0.007`, keep best plus last 10 checkpoints, export `reports/val_metrics_by_epoch.csv`, `loss_by_epoch.png`, `map50_95_by_epoch.png`, and post-train `kp_Test.json`, `metrics_Test.json`, `overlays_Test/` for `data/intermediate/SAW_frames_EntireSwim`.

@@ -28,11 +28,11 @@ Before running the training:
   conda activate vitpose
   ```
 
-- make sure the input dataset exists. For the current SAW dataset layout, the
-  canonical folder is:
+- make sure the input dataset exists. For the current frame-dataset layout, the
+  recommended path is the main dataset root:
 
   ```bash
-  data/intermediate/SAW_frames/_train_canonical
+  data/intermediate/SAW_frames
   ```
 
 - make sure the YOLO pose YAML exists in the sibling pose export folder:
@@ -41,8 +41,8 @@ Before running the training:
   data/intermediate/SAW_frames/_Yolo26x_pose/swimxyz_side_above_water_yolo26x_pose.yaml
   ```
 
-The launcher will resolve the YAML for you when you pass the canonical dataset
-path.
+The launcher resolves the YAML for you when you pass the main dataset root,
+the `_Yolo26x_pose` export folder, or the `_train_canonical` folder.
 
 ---
 
@@ -52,7 +52,7 @@ From the repository root:
 
 ```bash
 bash script/yolo26x_pose_training/train_yolo26x_pose_frame.sh \
-  --dataset-dir data/intermediate/SAW_frames/_train_canonical \
+  --dataset-dir data/intermediate/SAW_frames \
   --run-name yolo26x-pose_SAW_frames_20260614 \
   --use-tmux no
 ```
@@ -74,7 +74,7 @@ The script options are defined directly in `script/yolo26x_pose_training/train_y
 | `--run-name` | `$(date -u +%Y%m%d_%H%M)` | Experiment name used for `runs/<run-name>/...` and test output folders. |
 | `--use-tmux` | `yes` | Start training in a detached tmux session. Use `no` for foreground runs. |
 | `--checkpoint` | `models/pose/yolo26x-pose.pt` | Base YOLO pose checkpoint to start from. |
-| `--dataset-dir` | required | Canonical dataset root. The script auto-resolves the pose YAML from this folder. |
+| `--dataset-dir` | required | Main dataset root, `_Yolo26x_pose` folder, or `_train_canonical` folder. The script auto-resolves the pose YAML. |
 | `--imgsz` | `768` | Input image size passed to YOLO training. |
 | `--lr` | `0.001` | Initial learning rate. |
 | `--patience` | `3` | Early-stopping patience used by the monitoring helper. |
@@ -93,9 +93,9 @@ The script options are defined directly in `script/yolo26x_pose_training/train_y
 
 ### Notes on the most important options
 
-- `--dataset-dir` must point to a canonical directory that contains the images and
-  labels used by the YOLO pose export. Passing `_train_canonical` is the easiest
-  option because the script will find the sibling YAML under `_Yolo26x_pose`.
+- `--dataset-dir` should normally point to the main dataset root, for example
+  `data/intermediate/SAW_frames`. The script finds `_Yolo26x_pose` internally.
+  Passing `_Yolo26x_pose` or `_train_canonical` is still supported.
 - `--imgsz` has a big impact on memory usage. Start with `768` for a balance of
   speed and quality. Larger values such as `1024` or `1280` may need more GPU memory.
 - `--batch` should be set according to your GPU memory. If training becomes OOM,
@@ -112,7 +112,7 @@ The script options are defined directly in `script/yolo26x_pose_training/train_y
 
 ```bash
 bash script/yolo26x_pose_training/train_yolo26x_pose_frame.sh \
-  --dataset-dir data/intermediate/SAW_frames/_train_canonical \
+  --dataset-dir data/intermediate/SAW_frames \
   --run-name saw_pose_baseline \
   --use-tmux no \
   --epochs 50 \
@@ -126,7 +126,7 @@ Use this when you want a fast first experiment before longer training.
 
 ```bash
 bash script/yolo26x_pose_training/train_yolo26x_pose_frame.sh \
-  --dataset-dir data/intermediate/SAW_frames/_train_canonical \
+  --dataset-dir data/intermediate/SAW_frames \
   --run-name saw_pose_resume \
   --checkpoint runs/yolo26x-pose_SAW_frames_20260614/checkpoint/best.pt \
   --use-tmux no \
@@ -139,7 +139,7 @@ This is useful when you want to continue a prior run from the best saved weight.
 
 ```bash
 bash script/yolo26x_pose_training/train_yolo26x_pose_frame.sh \
-  --dataset-dir data/intermediate/SAW_frames/_train_canonical \
+  --dataset-dir data/intermediate/SAW_frames \
   --run-name saw_pose_custom \
   --checkpoint-dir runs/saw_pose_custom/checkpoint \
   --reports-dir runs/saw_pose_custom/reports \
@@ -155,7 +155,7 @@ This is the best choice when you want to keep experiment artifacts isolated.
 
 ```bash
 bash script/yolo26x_pose_training/train_yolo26x_pose_frame.sh \
-  --dataset-dir data/intermediate/SAW_frames/_train_canonical \
+  --dataset-dir data/intermediate/SAW_frames \
   --run-name saw_pose_lr0005 \
   --lr 0.0005 \
   --patience 5 \
@@ -213,7 +213,7 @@ The launcher already supports `tmux` through `--use-tmux yes`, which is the defa
 
 ```bash
 bash script/yolo26x_pose_training/train_yolo26x_pose_frame.sh \
-  --dataset-dir data/intermediate/SAW_frames/_train_canonical \
+  --dataset-dir data/intermediate/SAW_frames \
   --run-name yolo26x-pose_SAW_frames_tmux_demo
 ```
 
