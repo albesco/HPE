@@ -33,6 +33,9 @@ Options:
   --test-kp-json NAME_OR_PATH     Default: kp_Test.json under --test-output-dir
   --test-metrics-json NAME_OR_PATH Default: metrics_Test.json under --test-output-dir
   --test-overlay-dir PATH         Default: data/output/experiments/RUN_NAME/overlays_Test
+  --yolo-detector-checkpoint PATH Checkpoint for final YOLO26x-Detection -> VitPose++ Test
+  --yolo-imgsz N                  YOLO detector image size for final Test. Default: 768
+  --yolo-conf FLOAT               YOLO detector confidence threshold. Default: 0.25
   --device VALUE                  Default: auto. Use auto, cpu, cuda:0, ...
   --batch-size N                  Optional override for train/val/test dataloaders
   --num-workers N                 Optional override for train/val/test dataloaders
@@ -126,6 +129,9 @@ TEST_OUTPUT_DIR=""
 TEST_KP_JSON="kp_Test.json"
 TEST_METRICS_JSON="metrics_Test.json"
 TEST_OVERLAY_DIR=""
+YOLO_DETECTOR_CHECKPOINT="runs/hparam_search/yolo26x_detector_v2/cfg_03_lr0_0.00067_imgsz_768/weights/last.pt"
+YOLO_IMGSZ=768
+YOLO_CONF="0.25"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -149,6 +155,9 @@ while [[ $# -gt 0 ]]; do
     --test-kp-json) TEST_KP_JSON="$2"; shift 2 ;;
     --test-metrics-json) TEST_METRICS_JSON="$2"; shift 2 ;;
     --test-overlay-dir) TEST_OVERLAY_DIR="$2"; shift 2 ;;
+    --yolo-detector-checkpoint) YOLO_DETECTOR_CHECKPOINT="$2"; shift 2 ;;
+    --yolo-imgsz) YOLO_IMGSZ="$2"; shift 2 ;;
+    --yolo-conf) YOLO_CONF="$2"; shift 2 ;;
     --device) DEVICE="$2"; shift 2 ;;
     --batch-size) BATCH_SIZE="$2"; shift 2 ;;
     --num-workers) NUM_WORKERS="$2"; shift 2 ;;
@@ -187,6 +196,7 @@ TRAIN_CANONICAL_ABS="${DATASET_ROOT_ABS}/_train_canonical"
 TEST_CANONICAL_ABS="${TEST_DATASET_ROOT_ABS}/_train_canonical"
 VITPOSE_EXPORT_ABS="${DATASET_ROOT_ABS}/_VitPosePP"
 PRETRAINED_CHECKPOINT_ABS="$(abs_path "$PRETRAINED_CHECKPOINT")"
+YOLO_DETECTOR_CHECKPOINT_ABS="$(abs_path "$YOLO_DETECTOR_CHECKPOINT")"
 if [[ -n "$BASE_CONFIG" ]]; then
   BASE_CONFIG_ABS="$(abs_path "$BASE_CONFIG")"
 else
@@ -230,6 +240,9 @@ require_dir "$TEST_CANONICAL_ABS" "test canonical dataset"
 require_dir "$VITPOSE_EXPORT_ABS" "VitPose++ export directory"
 require_file "$BASE_CONFIG_ABS" "base VitPose++ config"
 require_file "$PRETRAINED_CHECKPOINT_ABS" "pretrained checkpoint"
+if [[ "$RUN_TEST_ENABLED" -eq 1 ]]; then
+  require_file "$YOLO_DETECTOR_CHECKPOINT_ABS" "YOLO26x-Detection checkpoint for final Test"
+fi
 for split in train val test; do
   require_dir "${TRAIN_CANONICAL_ABS}/${split}2017" "${split} images directory under train dataset"
   require_file "${TRAIN_CANONICAL_ABS}/annotations/person_keypoints_${split}.json" "${split} annotations under train dataset"
@@ -313,24 +326,34 @@ dataset_data_cfg = dict(
     dataset_idx=0,
 )
 data = dict(
+    _delete_=True,
     samples_per_gpu={int(os.environ["BATCH_LITERAL"])},
     workers_per_gpu={int(os.environ["WORKERS_LITERAL"])},
     val_dataloader=dict(samples_per_gpu={int(os.environ["BATCH_LITERAL"])}),
     test_dataloader=dict(samples_per_gpu={int(os.environ["BATCH_LITERAL"])}),
     train=dict(
+        type='TopDownCocoDataset',
         ann_file={q(str(train_root / "annotations" / "person_keypoints_train.json"))},
         img_prefix={q(str(train_root / "train2017") + "/")},
         data_cfg=dataset_data_cfg,
+        pipeline=train_pipeline,
+        dataset_info=coco_dataset_info,
     ),
     val=dict(
+        type='TopDownCocoDataset',
         ann_file={q(str(train_root / "annotations" / "person_keypoints_val.json"))},
         img_prefix={q(str(train_root / "val2017") + "/")},
         data_cfg=dataset_data_cfg,
+        pipeline=val_pipeline,
+        dataset_info=coco_dataset_info,
     ),
     test=dict(
+        type='TopDownCocoDataset',
         ann_file={q(str(test_root / "annotations" / "person_keypoints_test.json"))},
         img_prefix={q(str(test_root / "test2017") + "/")},
         data_cfg=dataset_data_cfg,
+        pipeline=test_pipeline,
+        dataset_info=coco_dataset_info,
     ),
 )
 pipeline_metadata = dict(
@@ -368,6 +391,10 @@ echo "crop_size=${CROP_SIZE}"
 echo "checkpoint_dir=${CHECKPOINT_DIR_ABS}"
 echo "reports_dir=${REPORTS_DIR_ABS}"
 echo "test_output_dir=${TEST_OUTPUT_DIR_ABS}"
+echo "test_pipeline=Yolo26x-Detection -> VitPose++"
+echo "yolo_detector_checkpoint=${YOLO_DETECTOR_CHECKPOINT_ABS}"
+echo "yolo_imgsz=${YOLO_IMGSZ}"
+echo "yolo_conf=${YOLO_CONF}"
 echo "device=${DEVICE}"
 echo "generated_config=${GENERATED_CONFIG_ABS}"
 
@@ -446,36 +473,28 @@ if [[ "$RUN_TEST_ENABLED" -ne 1 ]]; then
   exit 0
 fi
 
-TEST_CFG_OPTIONS=(
-  "data.samples_per_gpu=1"
-  "data.workers_per_gpu=1"
-  "data.test_dataloader.samples_per_gpu=1"
-  "data.test_dataloader.workers_per_gpu=1"
-  "data.test.ann_file=${TEST_CANONICAL_ABS}/annotations/person_keypoints_test.json"
-  "data.test.img_prefix=${TEST_CANONICAL_ABS}/test2017/"
-)
-
-conda run -n "$CONDA_ENV" python "${PROJECT_ROOT}/src/vitpose_base/tools/test.py" \
-  "$GENERATED_CONFIG_ABS" \
-  "$BEST_CKPT" \
-  --work-dir "$TEST_OUTPUT_DIR_ABS" \
-  --eval mAP \
-  --eval-out "$TEST_METRICS_JSON_ABS" \
-  --device "$DEVICE" \
-  --cfg-options "${TEST_CFG_OPTIONS[@]}"
-
-require_file "${TEST_OUTPUT_DIR_ABS}/result_keypoints.json" "test result_keypoints.json"
-cp "${TEST_OUTPUT_DIR_ABS}/result_keypoints.json" "$TEST_KP_JSON_ABS"
-
+OVERLAY_COUNT=0
 if [[ "$RENDER_OVERLAYS_ENABLED" -eq 1 ]]; then
-  conda run -n "$CONDA_ENV" python "${SCRIPT_DIR}/vitpose_generate_test_overlays_from_json.py" \
-    --dataset-root "$TEST_CANONICAL_ABS" \
-    --split test \
-    --predictions-json "$TEST_KP_JSON_ABS" \
-    --config "$GENERATED_CONFIG_ABS" \
-    --checkpoint "$BEST_CKPT" \
-    --output-dir "$TEST_OVERLAY_DIR_ABS" \
-    --device "$DEVICE"
+  OVERLAY_COUNT=-1
 fi
+
+conda run -n "$CONDA_ENV" python "${PROJECT_ROOT}/script/yolo26x_detection_prediction/evaluate_yolo_vitpose_map.py" \
+  --dataset-root "$TEST_CANONICAL_ABS" \
+  --split test \
+  --yolo-model "$YOLO_DETECTOR_CHECKPOINT_ABS" \
+  --vitpose-config "$GENERATED_CONFIG_ABS" \
+  --vitpose-checkpoint "$BEST_CKPT" \
+  --output-dir "$TEST_OUTPUT_DIR_ABS" \
+  --keypoints-out "$TEST_KP_JSON_ABS" \
+  --metrics-out "$TEST_METRICS_JSON_ABS" \
+  --summary-out "${TEST_OUTPUT_DIR_ABS}/summary_Test.json" \
+  --overlay-dir "$TEST_OVERLAY_DIR_ABS" \
+  --imgsz "$YOLO_IMGSZ" \
+  --conf "$YOLO_CONF" \
+  --overlay-count "$OVERLAY_COUNT" \
+  --device "$DEVICE"
+
+require_file "$TEST_KP_JSON_ABS" "YOLO->VitPose test keypoints JSON"
+require_file "$TEST_METRICS_JSON_ABS" "YOLO->VitPose test metrics JSON"
 
 echo "Training and Test outputs completed."

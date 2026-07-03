@@ -1,6 +1,7 @@
 # Tutorial: train_vitpose_frame.sh
 
 Questo tutorial descrive il launcher unico per training, report, Test e overlay VitPose++ su dataset frame gia preparati.
+Il train usa bbox GT; il Test finale passa invece da YOLO26x-Detection e usa il checkpoint detector e `imgsz` indicati nel comando.
 
 Script principale:
 
@@ -18,8 +19,8 @@ Lo script esegue l'intero flusso VitPose++:
 4. avvia il training MMPose/VitPose++ con `conda run -n vitpose`;
 5. monitora early stopping e retention checkpoint;
 6. esporta CSV/plot di validazione;
-7. esegue il Test finale;
-8. scrive `kp_Test.json`, `metrics_Test.json` e overlay.
+7. esegue il Test finale tramite la pipeline YOLO26x-Detection -> VitPose++;
+8. scrive `kp_Test.json`, `metrics_Test.json`, `summary_Test.json` e overlay.
 
 Il Test usa di default lo stesso dataset del training. Se serve testare su un altro dataset, bisogna passare esplicitamente `--test-dataset-dir`.
 
@@ -82,6 +83,19 @@ bash script/vitpose_training/train_vitpose_frame.sh \
 ```
 
 In questo caso il dataset di Test diverso e visibile nel comando, quindi non puo capitare il mismatch nascosto corretto nella sessione `Verifica-Overlay`.
+
+## Esempio Test con YOLO26x-Detection esplicito
+
+```bash
+bash script/vitpose_training/train_vitpose_frame.sh \
+  --dataset-dir data/intermediate/SAW_frames \
+  --pretrained-checkpoint models/pose/wholebody.pth \
+  --max-epochs 25 \
+  --run-name vitpose_SAW_frames_yolo_test \
+  --yolo-detector-checkpoint runs/hparam_search/yolo26x_detector_v2/cfg_03_lr0_0.00067_imgsz_768/weights/last.pt \
+  --yolo-imgsz 768 \
+  --yolo-conf 0.25
+```
 
 ## Esempio solo training, senza Test finale
 
@@ -161,6 +175,7 @@ tmux new-session -d -s vitpose_saw_frames_10ep \
 | Report Val | `runs/vitpose_SAW_frames_10ep/reports/` |
 | JSON Test | `data/output/experiments/vitpose_SAW_frames_10ep/kp_Test.json` |
 | Metriche Test | `data/output/experiments/vitpose_SAW_frames_10ep/metrics_Test.json` |
+| Summary Test | `data/output/experiments/vitpose_SAW_frames_10ep/summary_Test.json` |
 | Overlay Test | `data/output/experiments/vitpose_SAW_frames_10ep/overlays_Test/` |
 
 ### Riprendere il controllo dopo disconnessione
@@ -212,7 +227,8 @@ La cartella `script/vitpose_training/` contiene tutti i pezzi usati dal launcher
 
 ## Note operative
 
-- Per confronto con YOLO26x-Pose su `SAW_frames`, usare `--dataset-dir data/intermediate/SAW_frames` e lasciare il default del Test.
+- Per confronto con YOLO26x-Pose su `SAW_frames`, usare `--dataset-dir data/intermediate/SAW_frames` e lasciare il default del Test, oppure specificare un checkpoint detector con `--yolo-detector-checkpoint`.
 - Usare `--test-dataset-dir` solo quando il Test deve essere intenzionalmente diverso dal training.
+- Se vuoi allineare il detector a un esperimento specifico, imposta anche `--yolo-imgsz` e `--yolo-conf` in modo esplicito nel comando.
 - Se una run esiste gia, scegliere un nuovo `--run-name` oppure passare `--overwrite`.
 - Il file `effective_config.py` e la riga iniziale dello script stampano i path effettivi usati per train e test.

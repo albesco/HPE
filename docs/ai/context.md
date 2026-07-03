@@ -48,8 +48,12 @@
 - Historical sections may mention `script_old/` launchers that produced past results; do not treat them as current entrypoints for new work unless explicitly restoring an old workflow.
 - Consolidated entrypoints:
   - Dataset preparation RAW/frame+label -> train-ready exports: `script/dataset_preparation-cleaning/prepare_swimxyz_frames_dataset.py`.
+  - YOLO26x-Detection training: `script/yolo26x_detection_training/train_yolo26x_detection_frame.sh`.
+  - YOLO26x-Detection historical grid search: `script_old/yolo26x_Detection-Training/yolo26x_detector_grid2x2.py`.
   - YOLO26x-Pose training: `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`.
   - VitPose++ training: `script/vitpose_training/train_vitpose_frame.sh`.
+  - YOLO26x-Detection prediction/overlays/top-1 labels: `script/yolo26x_detection_prediction/`.
+  - YOLO bbox -> VitPose++ evaluation bridge: `script/yolo26x_detection_prediction/evaluate_yolo_vitpose_map.py`.
   - YOLO26x-Pose prediction/KP/overlays: `script/yolo26x_pose_prediction/predict_yolo26x_pose_frame.sh`.
   - VitPose++ prediction/KP/overlays: `script/vitpose_prediction/predict_vitpose_frame.sh`.
   - Overlay GT/comparison: `script/overlays/GT_KP_overlays.py` and `script/overlays/overlay_sample_comparison.py`.
@@ -62,6 +66,7 @@
 - Overlay comparison utility: `script/overlays/overlay_sample_comparison.py` compares Yolo26x-Pose and VitPose++ Test overlays on random frames, saving the original frame plus `_GT`, `_Yolo26x-Pose`, and `_VitPosePP` renders and a `_manifest.json` in the comparison directory. VitPose frame association prefers `<KP-VITPOSE>/../overlays_Test/_manifest.json` when available.
 - Tutorial doc added: `script/overlays/tutorial_overlay_sample_comparison.md` explains function, parameters, examples, defaults, and the `_GT` / `_Yolo26x-Pose` / `_VitPosePP` output layout for the overlay comparison workflow.
 - Consolidated VitPose++ frame launcher: `script/vitpose_training/train_vitpose_frame.sh`; pass `--dataset-dir` as the dataset root such as `data/intermediate/SAW_frames`, not `_train_canonical`. The script resolves `_train_canonical` and `_VitPosePP` internally; `--test-dataset-dir` defaults to the same root as `--dataset-dir` to avoid hidden train/test mismatches.
+- YOLO26x-Detection tutorials: `script/yolo26x_detection_training/tutorial.md` and `script/yolo26x_detection_prediction/tutorial.md` describe the detector training, grid search, prediction, tmux usage, defaults, and criticalities.
 - Paths must not be hardcoded.
 - Generated artifacts should go outside Git or under ignored directories.
 - For current VitPose++ training, retain best validation checkpoint plus latest three periodic checkpoints (`max_keep_ckpts=3`).
@@ -108,8 +113,12 @@ Latest plots:
 - Completed val-only hyperparameter selection: `runs/hparam_search/yolo26x_detector_v2/cfg_03_lr0_0.00067_imgsz_768/` selected as canonical cfg_03; selection metric priority was recall, then AP75/IoU if available, then mAP50-95.
 - Selected cfg_03 validation metrics at epoch 5: precision `0.99440`, recall `0.99519`, mAP50 `0.99267`, mAP50-95 `0.86614`.
 - Incremental training starts from `runs/hparam_search/yolo26x_detector_v2/cfg_03_lr0_0.00067_imgsz_768/weights/last.pt`; subsequent runs auto-resume from `runs/yolo26x_bbox_side_above_water/yolo26x-detection_<tag>/weights/last.pt` when present.
-- Detector launcher: `script_old/yolo_training/train_yolo_side_above_water.sh`; defaults include `imgsz=768`, `batch=2`, `lr0=0.00067`, `patience=2`, `save_period=1`, keep latest `3` periodic checkpoints, run root `runs/yolo26x_bbox_side_above_water/`.
+- Historical detector launcher archived at `script/yolo26x_detection_training/train_yolo26x_detection_frame.sh`; current parametric launcher is `script/yolo26x_detection_training/train_yolo26x_detection_frame.sh`.
+- YOLO26x-Detection training directory cleanup on 2026-07-02: `script/yolo26x_detection_training/` now keeps only the parametric launcher, its runtime helpers, and local docs; historical `train_yolo_side_above_water.sh` and `yolo26x_detector_grid2x2.py` moved to `script_old/yolo26x_Detection-Training/`.
+- Detector min-delta monitor: `script/yolo26x_detection_training/monitor_yolo_detection_patience.py`; it can watch `results.csv` with `metrics/mAP50-95(B)`, `min_delta`, `patience`, and checkpoint pruning, but it is opt-in and not part of native Ultralytics early stopping unless launched separately.
+- Parametric frame detector launcher: `script/yolo26x_detection_training/train_yolo26x_detection_frame.sh`; it generalizes the detector training workflow for dataset roots containing `_Yolo26x_detection`, uses a pretrained checkpoint, applies external mAP50-95 min-delta early stopping, retains best/last plus recent epoch checkpoints, exports Val CSV/plots, and evaluates Test with bbox JSON, metrics JSON, and bbox overlays.
 - Detector dataset YAML: `data/intermediate/Side_above_water/_Yolo26x_detection/swimxyz_side_above_water_yolo26x_detection.yaml`; `images/{train,val,test}` are symlinks to canonical `train2017`, `val2017`, and `test2017`.
+- SUW_frames YOLO26x-Detection training launched on 2026-07-02 via tmux session `train_yolo26x_detection_SUW_frames_20260701` using `script/yolo26x_detection_training/train_yolo26x_detection_frame.sh`, dataset YAML `data/intermediate/SUW_frames/_Yolo26x_detection/swimxyz_side_above_water_yolo26x_detection.yaml`, pretrained `models/detection/yolo26x.pt`, run name `yolo26x-detection_SUW_frames_20260701`, `patience=3`, `keep_epoch_ckpts=10`, and no external `min_delta` monitor active; metrics pending. The run directory is `runs/yolo26x-detection_SUW_frames_20260701`. The first launch produced zero metrics because directory symlinks under `_Yolo26x_detection/images/{train,val,test}` caused Ultralytics to resolve images under `_train_canonical` and miss labels; on 2026-07-02 the image layout was changed to real split directories containing per-file symlinks, stale `_train_canonical/*.cache` files were removed, and the run was relaunched cleanly. New caches under `_Yolo26x_detection/labels/{train,val}.cache` contain train `6044` boxes and val `1727` boxes.
 - Stop criterion for the incremental phase: stop when training loss keeps decreasing while validation mAP50-95 plateaus or degrades, using patience of `2` epochs to consolidate the plateau.
 - Smoke run `runs/yolo26x_bbox_side_above_water/yolo26x-detection_smoke_1ep_20260523_1740` completed successfully as a launcher/checkpoint smoke test (`best.pt`, `last.pt`, `epoch0.pt`), but its validation metrics are not useful because the log reports `no labels found in detect set` and `results.csv` contains zeros.
 - Useful YOLO26x detection continuation from cfg_03 completed: `runs/yolo26x_bbox_side_above_water/yolo26x-detection_from_cfg03_ep5_20260523_1923/`; start checkpoint `runs/hparam_search/yolo26x_detector_v2/cfg_03_lr0_0.00067_imgsz_768/weights/last.pt`; useful checkpoint to carry forward `runs/yolo26x_bbox_side_above_water/yolo26x-detection_from_cfg03_ep5_20260523_1923/weights/best.pt`; best observed mAP50-95 `0.86827` at epoch `1`, last epoch `3`.
@@ -152,7 +161,7 @@ Latest plots:
 - VitPose++ `AP` from MMPose/COCO is COCO keypoint OKS AP averaged across thresholds `0.50:0.05:0.95` and is the stricter AP/mAP50-95-style metric; `AP50` and `AP75` are threshold-specific.
 - YOLO26x-pose reports Ultralytics Pose mAP50 and Pose mAP50-95. Direct comparison to VitPose++ should ideally use the same COCO/OKS evaluator on exported YOLO predictions and the same GT split.
 
-- YOLO26x detector prediction convention: downstream scripts keep exactly one bbox per frame, selected by highest confidence and then by larger area on ties. This applies to detector overlays and YOLO->VitPose++ bbox handoff.
+- YOLO26x detector prediction convention: downstream scripts keep exactly one bbox per frame, selected by highest confidence and then by larger area on ties. This applies to `script/yolo26x_detection_prediction/` detector overlays and YOLO->VitPose++ bbox handoff.
 
 ## HPE report direct/cross metrics
 - Reproducible report-table script: `script/hpe_report/build_hpe_report_tables.py`; example config: `script/hpe_report/hpe_report_config.example.json`.
@@ -167,7 +176,7 @@ Latest plots:
 
 ## End-to-end YOLO+VitPose++ pipeline
 - Consolidated experiment name: `YoloVitPose_mAP`.
-- Historical implementation: `script_old/yolo_training/evaluate_yolo_vitpose_map.py`; port or recreate this workflow under `script/` before using it for new operational work.
+- Operational implementation: `script/yolo26x_detection_prediction/evaluate_yolo_vitpose_map.py`; it uses the detector top-1 bbox rule before handing bboxes to VitPose++.
 - Pipeline: YOLO predicts absolute `xyxy` bbox on the full frame; code converts bbox to COCO `xywh`; VitPose++ receives full image + `xywh` bbox; MMPose performs the top-down crop/affine internally; COCO keypoint mAP evaluates predictions.
 - Visualization convention: use MMPose `vis_pose_result` for predicted keypoints/skeleton and draw only the YOLO bbox in red; do not use custom fuchsia/GT-mixed skeleton renderers for YOLO+VitPose outputs.
 - YOLO checkpoint for consolidated YOLO->VitPose++ evaluation: `runs/hparam_search/yolo26x_detector_v2/cfg_03_lr0_0.00067_imgsz_768/weights/last.pt`.
@@ -176,7 +185,7 @@ Latest plots:
 - Previous failed YOLO+VitPose outputs and saved result JSON were invalidated because saved keypoints were not reproducible with the current bbox/model path; those failed experiment artifacts were removed.
 
 ## Open questions / next work
-- Full `YoloVitPose_mAP` test evaluation is pending; port or recreate the historical `script_old/yolo_training/evaluate_yolo_vitpose_map.py` workflow under `script/` before reporting new end-to-end AP.
+- Full `YoloVitPose_mAP` test evaluation is pending; use `script/yolo26x_detection_prediction/evaluate_yolo_vitpose_map.py` before reporting new end-to-end AP.
 - Use the consolidated visualization directory to inspect remaining YOLO no-detection cases and decide whether to tune YOLO confidence/fallback behavior.
 
 ## SUW_frames Prepared Dataset
