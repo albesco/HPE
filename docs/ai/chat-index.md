@@ -7,7 +7,6 @@
 - Decide whether YOLO no-detection cases need confidence tuning or fallback behavior.
 
 ## In progress
-- YOLO26x-Pose training in progress: `yolo26x-pose_SUW_frames_20260701` launched via tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260701` on `data/intermediate/SUW_frames` using `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`; outputs target `runs/yolo26x-pose_SUW_frames_20260701/` and `data/output/experiments/yolo26x-pose_SUW_frames_20260701/`.
 
 ## Done
 - Prepared `data/intermediate/SUW_frames/` from raw `data/input/subset_xyz/SUW_frames/` with `script/dataset_preparation-cleaning/prepare_swimxyz_frames_dataset.py`; accepted `8634/15000` samples, rejected `6366` with `no_valid_keypoints`, and regenerated `_train_canonical`, `_VitPosePP`, `_Yolo26x_detection`, and `_Yolo26x_pose` with split counts train `6044`, val `1727`, test `863`.

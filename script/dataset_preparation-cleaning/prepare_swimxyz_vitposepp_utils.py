@@ -55,7 +55,9 @@ EXPECTED_TRAILING_MISSING_HEADERS = [
     "RHeel.z",
 ]
 
-# SwimXYZ "COCO" files keep the BODY25 header but store only these 18 values.
+# SwimXYZ "COCO" files keep the BODY25 header but some exports store only the
+# first 18 BODY25 triplets. Keep the original header order to avoid shifting
+# hips, legs, eyes, and ears when padding missing trailing keypoints.
 SWIMXYZ_COCO18_ORDER = [
     "Nose",
     "Neck",
@@ -65,6 +67,7 @@ SWIMXYZ_COCO18_ORDER = [
     "LShoulder",
     "LElbow",
     "LWrist",
+    "MidHip",
     "RHip",
     "RKnee",
     "RAnkle",
@@ -72,9 +75,8 @@ SWIMXYZ_COCO18_ORDER = [
     "LKnee",
     "LAnkle",
     "REye",
-    "REar",
     "LEye",
-    "LEar",
+    "REar",
 ]
 
 BODY25_TO_COCO = [

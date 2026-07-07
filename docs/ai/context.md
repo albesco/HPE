@@ -125,7 +125,7 @@ Latest plots:
 - YOLO OOM diagnostic: `logs/yolo_diagnostic_1280_b8_20260513_135040.log`; `yolo26x.pt`, `imgsz=1280`, `batch=8` exhausted 32 GB V100.
 
 ## YOLO26x pose state
-- SUW_frames YOLO26x-Pose training launched on 2026-07-01 via tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260701` using `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh` and dataset `data/intermediate/SUW_frames`; normalized run name `yolo26x-pose_SUW_frames_20260701`, run dir `runs/yolo26x-pose_SUW_frames_20260701/`, Test outputs target `data/output/experiments/yolo26x-pose_SUW_frames_20260701/`; metrics pending.
+- SUW_frames YOLO26x-Pose retraining launched on 2026-07-05 via tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260705` using regenerated `data/intermediate/SUW_frames` and `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`; run dir `runs/yolo26x-pose_SUW_frames_20260705/`, Test outputs target `data/output/experiments/yolo26x-pose_SUW_frames_20260705/`; pretrained `models/pose/yolo26x-pose.pt`, `imgsz=768`, `lr0=0.001`, `batch=1`, external monitor `patience=3`, `min_delta=0.007`, keep last `10`; metrics pending.
 - Dataset root: `data/intermediate/Side_above_water/_Yolo26x_pose/`.
 - Data YAML: `data/intermediate/Side_above_water/_Yolo26x_pose/swimxyz_side_above_water_yolo26x_pose.yaml`.
 - Converter: `script/dataset_preparation-cleaning/prepare_yolo_pose_dataset.py`; default `--link-mode symlink`.

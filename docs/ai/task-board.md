@@ -7,7 +7,7 @@
 - Decide whether YOLO no-detection cases need confidence tuning or fallback behavior.
 
 ## In progress
-- YOLO26x-Pose training in progress: `yolo26x-pose_SUW_frames_20260701` launched via tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260701` on `data/intermediate/SUW_frames` using `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`; outputs target `runs/yolo26x-pose_SUW_frames_20260701/` and `data/output/experiments/yolo26x-pose_SUW_frames_20260701/`.
+- YOLO26x-Pose retraining in progress: `yolo26x-pose_SUW_frames_20260705` launched via tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260705` on regenerated `data/intermediate/SUW_frames` using `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`; outputs target `runs/yolo26x-pose_SUW_frames_20260705/` and `data/output/experiments/yolo26x-pose_SUW_frames_20260705/`.
 - YOLO26x-Detection training in progress: `yolo26x-detection_SUW_frames_20260701` launched via tmux session `train_yolo26x_detection_SUW_frames_20260701` on `data/intermediate/SUW_frames` using pretrained `models/detection/yolo26x.pt`; native Ultralytics early stopping uses `patience=3` without external `min_delta`, and periodic checkpoint pruning keeps last `10`. The run directory is `runs/yolo26x-detection_SUW_frames_20260701`.
 
 ## Done

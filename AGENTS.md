@@ -6,8 +6,7 @@ This repository uses `docs/ai/` as the persistent project memory shared by Codex
 
 This server does not support the sandbox mechanism used by Codex tools (bubblewrap / `bwrap`).
 Until further notice:
-
-- Avoid relying on sandboxed operations (they may fail with `bwrap` errors).
+- Avoid relying on sandboxed operations (they fail with `bwrap` errors).
 - Prefer running commands and making memory-only edits outside the sandbox.
 - When editing `docs/ai/` or other memory files, keep changes minimal and scoped; a small targeted script is acceptable.
 
@@ -46,6 +45,6 @@ Before ending a long session or when context is becoming limited:
 Do not use chat history as the source of truth. Treat repository files and `docs/ai/` as the durable source of truth.
 
 Use clear, professional language with concise sentences. Avoid excessive detail and give details only on request.
-Verbose mode: low
+Verbose mode: very low
 
 Memory hygiene rule: only durable decisions, important project facts, and important results should be recorded in `docs/ai/`. Transient attempts, failed intermediate states, scratch commands, and discarded artifacts should not be consolidated; if they were recorded temporarily and later discarded, remove or supersede them so the memory reflects the final useful state.
