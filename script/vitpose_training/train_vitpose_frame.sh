@@ -307,7 +307,10 @@ total_epochs = {int(os.environ["MAX_EPOCHS"])}
 optimizer = dict(lr={float(os.environ["LR"]):.5f})
 checkpoint_config = dict(interval=1, max_keep_ckpts={int(os.environ["KEEP_LAST_N_CHECKPOINTS"])}, create_symlink=True)
 evaluation = dict(interval=1, metric='mAP', save_best='AP')
-model = dict(backbone=dict(img_size=({int(os.environ["CROP_H"])}, {int(os.environ["CROP_W"])})))
+model = dict(
+    backbone=dict(img_size=({int(os.environ["CROP_H"])}, {int(os.environ["CROP_W"])})),
+    associate_keypoint_head=[],
+)
 dataset_data_cfg = dict(
     image_size=[{int(os.environ["CROP_W"])}, {int(os.environ["CROP_H"])}],
     heatmap_size=[{int(os.environ["HEATMAP_W"])}, {int(os.environ["HEATMAP_H"])}],
