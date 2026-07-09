@@ -36,7 +36,7 @@ Options:
   --max-test-items <int>    Random Test items to evaluate; 0 means all (default: 0)
   --seed <int>              Random seed for sampling (optional; default when sampling: 0)
   --conf <float>            YOLO confidence threshold; 0 means all predictions (default: 0)
-  --max-detections-per-image <int>  Detections to export/draw per image; 0 means all (default: 1)
+  --max-detections-per-image <int>  Detections to evaluate/export/draw per image; 0 means all (default: 1)
   --imgsz <int>             YOLO image size (default: 768)
   --batch <int>             YOLO val batch size (default: 1)
   --device <int|str>        YOLO device, e.g. 0 or cpu (default: 0)

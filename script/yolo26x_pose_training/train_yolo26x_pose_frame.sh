@@ -10,7 +10,8 @@ CHECKPOINT="${PROJECT_ROOT}/models/pose/yolo26x-pose.pt"
 DATASET_DIR=""
 IMGSZ=768
 LR=0.001
-PATIENCE=3
+PATIENCE=8
+MIN_EPOCHS=20
 MIN_DELTA=0.007
 KEEP_LAST=10
 CHECKPOINT_DIR=""
@@ -37,6 +38,7 @@ Options:
   --imgsz <int>
   --lr <float>
   --patience <int>
+  --min-epochs <int>
   --min-delta <float>
   --keep-last <int>
   --checkpoint-dir <dir>
@@ -63,6 +65,7 @@ parse_args() {
       --imgsz) IMGSZ="$2"; shift 2 ;;
       --lr) LR="$2"; shift 2 ;;
       --patience) PATIENCE="$2"; shift 2 ;;
+      --min-epochs) MIN_EPOCHS="$2"; shift 2 ;;
       --min-delta) MIN_DELTA="$2"; shift 2 ;;
       --keep-last) KEEP_LAST="$2"; shift 2 ;;
       --checkpoint-dir) CHECKPOINT_DIR="$2"; shift 2 ;;
@@ -130,6 +133,7 @@ resolve_paths() {
   TRAIN_LOG="${LOG_DIR}/train.log"
   TEST_LOG="${LOG_DIR}/test.log"
   MONITOR_STATUS="${RUN_DIR}/monitor_status.json"
+  METRIC_BEST_CHECKPOINT="${RUN_DIR}/weights/best_map50_95_pose.pt"
 
   if [[ -z "${CHECKPOINT_DIR}" ]]; then
     CHECKPOINT_DIR="${RUN_DIR}/checkpoint"
@@ -172,7 +176,7 @@ sync_checkpoints() {
   find "${CHECKPOINT_DIR}" -maxdepth 1 -type f -name '*.pt' -delete
   local copied=0
   local file
-  for file in "${weights_dir}/best.pt" "${weights_dir}/last.pt"; do
+  for file in "${weights_dir}/best_map50_95_pose.pt" "${weights_dir}/best.pt" "${weights_dir}/last.pt"; do
     if [[ -f "${file}" ]]; then
       cp -f "${file}" "${CHECKPOINT_DIR}/"
       copied=1
@@ -198,10 +202,13 @@ run_training() {
   echo "Image Size:    ${IMGSZ}"
   echo "Learning Rate: ${LR}"
   echo "Patience:      ${PATIENCE}"
+  echo "Min Epochs:    ${MIN_EPOCHS}"
   echo "Min Delta:     ${MIN_DELTA}"
   echo "Keep Last:     ${KEEP_LAST}"
   echo "Run Dir:       ${RUN_DIR}"
   echo "Train Log:     ${TRAIN_LOG}"
+
+  : > "${TRAIN_LOG}"
 
   setsid bash -lc "cd '${PROJECT_ROOT}' && conda run -n vitpose yolo pose train \
     model='${CHECKPOINT}' \
@@ -217,6 +224,7 @@ run_training() {
     save_period=1 \
     val=True \
     split=val \
+    max_det=1 \
     plots=True \
     verbose=True \
     seed=0 \
@@ -226,7 +234,7 @@ run_training() {
     exist_ok=True \
     optimizer=AdamW \
     project='${PROJECT_ROOT}/runs' \
-    name='${RUN_NAME}' > '${TRAIN_LOG}' 2>&1" &
+    name='${RUN_NAME}' >> '${TRAIN_LOG}' 2>&1" &
 
   local train_pid=$!
   echo "${train_pid}" > "${RUN_DIR}/train.pid"
@@ -236,10 +244,12 @@ run_training() {
     --pid "${train_pid}" \
     --metric "metrics/mAP50-95(P)" \
     --patience "${PATIENCE}" \
+    --min-epochs "${MIN_EPOCHS}" \
     --keep-last "${KEEP_LAST}" \
     --min-delta "${MIN_DELTA}" \
     --poll-seconds 60 \
-    --status-json "${MONITOR_STATUS}" 2>&1 | tee -a "${TRAIN_LOG}" &
+    --status-json "${MONITOR_STATUS}" \
+    --best-checkpoint "${METRIC_BEST_CHECKPOINT}" 2>&1 | tee -a "${TRAIN_LOG}" &
 
   local monitor_pid=$!
 
@@ -269,10 +279,14 @@ export_report() {
 }
 
 evaluate_test() {
-  local best_weights="${RUN_DIR}/weights/best.pt"
+  local best_weights="${METRIC_BEST_CHECKPOINT}"
   if [[ ! -f "${best_weights}" ]]; then
-    echo "ERROR: missing best checkpoint: ${best_weights}" >&2
-    return 1
+    echo "WARNING: missing metric-best checkpoint: ${best_weights}; falling back to Ultralytics best.pt" >&2
+    best_weights="${RUN_DIR}/weights/best.pt"
+    if [[ ! -f "${best_weights}" ]]; then
+      echo "ERROR: missing best checkpoint: ${best_weights}" >&2
+      return 1
+    fi
   fi
 
   rm -f "${TEST_KP_JSON}" "${TEST_METRICS_JSON}" "${TEST_METRICS_CSV}"
@@ -290,6 +304,7 @@ evaluate_test() {
     --out-metrics-json "${TEST_METRICS_JSON}" \
     --out-keypoints-json "${TEST_KP_JSON}" \
     --overlays-dir "${OVERLAYS_DIR}" \
+    --max-detections-per-image 1 \
     --overlay-max-images 0 2>&1 | tee "${TEST_LOG}"
 }
 
@@ -318,7 +333,7 @@ main() {
     fi
 
     tmux new-session -d -s "${session_name}" -x 200 -y 50 \
-      "cd '${PROJECT_ROOT}' && bash script/yolo26x_pose_training/train_yolo26x_pose_frame.sh --use-tmux no --run-name '${RUN_NAME}' --checkpoint '${CHECKPOINT}' --dataset-dir '${DATASET_DIR}' --checkpoint-dir '${CHECKPOINT_DIR}' --reports-dir '${REPORTS_DIR}' --overlays-dir '${OVERLAYS_DIR}' --test-kp-json '${TEST_KP_JSON}' --test-metrics-json '${TEST_METRICS_JSON}' --test-metrics-csv '${TEST_METRICS_CSV}' --patience '${PATIENCE}' --min-delta '${MIN_DELTA}' --keep-last '${KEEP_LAST}' --lr '${LR}' --imgsz '${IMGSZ}' --epochs '${EPOCHS}' --batch '${BATCH}' --device '${DEVICE}' --workers '${WORKERS}'"
+      "cd '${PROJECT_ROOT}' && bash script/yolo26x_pose_training/train_yolo26x_pose_frame.sh --use-tmux no --run-name '${RUN_NAME}' --checkpoint '${CHECKPOINT}' --dataset-dir '${DATASET_DIR}' --checkpoint-dir '${CHECKPOINT_DIR}' --reports-dir '${REPORTS_DIR}' --overlays-dir '${OVERLAYS_DIR}' --test-kp-json '${TEST_KP_JSON}' --test-metrics-json '${TEST_METRICS_JSON}' --test-metrics-csv '${TEST_METRICS_CSV}' --patience '${PATIENCE}' --min-epochs '${MIN_EPOCHS}' --min-delta '${MIN_DELTA}' --keep-last '${KEEP_LAST}' --lr '${LR}' --imgsz '${IMGSZ}' --epochs '${EPOCHS}' --batch '${BATCH}' --device '${DEVICE}' --workers '${WORKERS}'"
 
     echo "Started tmux session: ${session_name}"
     echo "Attach with: tmux attach -t ${session_name}"

@@ -125,7 +125,7 @@ Latest plots:
 - YOLO OOM diagnostic: `logs/yolo_diagnostic_1280_b8_20260513_135040.log`; `yolo26x.pt`, `imgsz=1280`, `batch=8` exhausted 32 GB V100.
 
 ## YOLO26x pose state
-- SUW_frames YOLO26x-Pose retraining launched on 2026-07-05 via tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260705` using regenerated `data/intermediate/SUW_frames` and `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`; run dir `runs/yolo26x-pose_SUW_frames_20260705/`, Test outputs target `data/output/experiments/yolo26x-pose_SUW_frames_20260705/`; pretrained `models/pose/yolo26x-pose.pt`, `imgsz=768`, `lr0=0.001`, `batch=1`, external monitor `patience=3`, `min_delta=0.007`, keep last `10`; metrics pending.
+- YOLO26x-Pose launcher/monitor correction on 2026-07-09: `script/yolo26x_pose_training/monitor_yolo_pose_patience.py` now saves the metric-best checkpoint for `metrics/mAP50-95(P)` as `weights/best_map50_95_pose.pt`, and `script/yolo26x_pose_training/train_yolo26x_pose_frame.sh` evaluates Test on that checkpoint before falling back to Ultralytics `best.pt`. Default external stopping is now `patience=8`, `min_epochs=20`, `min_delta=0.007`.
 - Dataset root: `data/intermediate/Side_above_water/_Yolo26x_pose/`.
 - Data YAML: `data/intermediate/Side_above_water/_Yolo26x_pose/swimxyz_side_above_water_yolo26x_pose.yaml`.
 - Converter: `script/dataset_preparation-cleaning/prepare_yolo_pose_dataset.py`; default `--link-mode symlink`.
@@ -204,6 +204,7 @@ Latest plots:
 - YOLO26x-pose current Test evaluation/prediction should use `script/yolo26x_pose_prediction/predict_yolo26x_pose_frame.sh` or `script/yolo26x_pose_training/evaluate_yolo_pose_split.py`; the old `script_old/yolo_training/train_yolo_pose_side_above_water.sh` behavior is historical.
 
 ## YOLO26x-pose visualization
+- YOLO26x-Pose train/eval/prediction now uses a top-1 detection convention for overlays/exports/validation: keep only the bbox/keypoint prediction with highest confidence per frame (`max_det=1`), matching the single-swimmer assumption used by downstream comparisons.
 - For new qualitative YOLO26x-pose overlays, use `script/yolo26x_pose_prediction/predict_yolo26x_pose_frame.sh` outputs and `script/overlays/overlay_sample_comparison.py`; the old renderer under `script_old/yolo_training/` is historical.
 - YOLO26x-Pose prediction launcher: `script/yolo26x_pose_prediction/predict_yolo26x_pose_frame.sh` evaluates a selected checkpoint on a dataset Test split from the main dataset directory, resolves `_Yolo26x_pose` internally, optionally builds a reproducible random sampled Test view, writes `kp_Test.json` / `metrics_Test.json` / `metrics_Test.csv`, and renders frame/KP overlays.
 - VitPose++ prediction launcher: `script/vitpose_prediction/predict_vitpose_frame.sh` evaluates a selected checkpoint on a dataset Test split from the main dataset directory, resolves `_train_canonical` and `_VitPosePP` internally, creates a reproducible filtered/sampled Test view, defaults to crop `384x128` for the `vitpose_SAW_frames_20260615` checkpoint family, writes `kp_Test.json` / `metrics_Test.json`, and renders frame/KP overlays.

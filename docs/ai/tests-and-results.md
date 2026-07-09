@@ -6,7 +6,8 @@ This file tracks validation commands, training/evaluation outcomes, and importan
 
 | Date | Area | Run | Result | Notes |
 |---|---|---|---|---|
-| 2026-07-05 | YOLO26x-Pose SUW_frames retraining | `yolo26x-pose_SUW_frames_20260705` | launched in tmux | dataset `data/intermediate/SUW_frames` regenerated after BODY25 parser correction; session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260705`; pretrained `models/pose/yolo26x-pose.pt`; `imgsz=768`, `lr0=0.001`, `batch=1`, `device=0`, `epochs=100`; external monitor `patience=3`, `min_delta=0.007`, keep last `10`; metrics pending. |
+| 2026-07-09 | YOLO26x-Pose training procedure | `script/yolo26x_pose_training/` | static validation passed | monitor now copies metric-best `best_map50_95_pose.pt` for `metrics/mAP50-95(P)`, launcher evaluates Test on that checkpoint, defaults changed to `patience=8` and `min_epochs=20`; `bash -n`, `py_compile`, `--help`, and a non-GPU monitor smoke test passed. |
+| 2026-07-08 | VitPose++ SUW_frames training trigger | `vitpose_SUW_frames_20260705` | launched via tmux | GPU-free trigger `trigger_vitpose_suw_frames_20260705` saw free VRAM above 18000 MiB and immediately launched `vitpose_suw_frames_20260705`; status reached epoch 1 iter 100/6044; log `logs/vitpose_SUW_frames_20260705.log`; status `runs/vitpose_SUW_frames_20260705/training_status.txt`. |
 | 2026-07-02 | YOLO26x-Detection training cleanup | `script/yolo26x_detection_training/` | static validation passed | moved non-runtime historical files `train_yolo_side_above_water.sh` and `yolo26x_detector_grid2x2.py` to `script_old/yolo26x_Detection-Training/`; removed the obsolete base-script requirement from `train_yolo26x_detection_frame.sh`; `bash -n`, helper `py_compile`, and `--help` passed. |
 | 2026-07-02 | YOLO26x-Detection tutorial refresh | `script/yolo26x_detection_training/tutorial.md` | documentation updated | tutorial now covers installation, full parameter reference, defaults, tmux launch/attach/stop flow, output layout, examples, and common failure modes for `train_yolo26x_detection_frame.sh`; relies on already-validated launcher/help/py_compile state. |
 | 2026-07-02 | YOLO26x-Detection frame launcher | `script/yolo26x_detection_training/train_yolo26x_detection_frame.sh` | static validation passed | added parametric launcher plus `export_yolo_detection_training_report.py` and `evaluate_yolo_detection_split.py`; `bash -n`, helper `py_compile`, and `--help` passed; no new training launched by this validation. |
@@ -311,3 +312,10 @@ Result:
 - VitPose++ export counts match canonical annotations: train `6044`, val `1727`, test `863`.
 - YOLO26x detection labels verified: train `6044`, val `1727`, test `863`, all rows have `5` fields.
 - YOLO26x pose labels verified: train `6044`, val `1727`, test `863`, all rows have `56` fields.
+## 2026-07-09: YOLO26x-Pose top-1 retraining launched
+
+- Scripts validated: `python3 -m py_compile script/yolo26x_pose_training/evaluate_yolo_pose_split.py`, `bash -n script/yolo26x_pose_training/train_yolo26x_pose_frame.sh`, and `bash -n script/yolo26x_pose_prediction/predict_yolo26x_pose_frame.sh`.
+- Training launched in tmux session `train_yolo26x_pose_yolo26x-pose_SUW_frames_20260709_top1`.
+- Dataset: `data/intermediate/SUW_frames`; run: `runs/yolo26x-pose_SUW_frames_20260709_top1`.
+- Key settings: `max_det=1`, `imgsz=768`, `lr0=0.001`, `min_epochs=20`, `patience=3`, `min_delta=0.007`.
+

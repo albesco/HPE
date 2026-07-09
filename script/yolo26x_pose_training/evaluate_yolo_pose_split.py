@@ -146,6 +146,7 @@ def _write_predictions_and_overlays(
             conf=conf,
             device=device,
             verbose=False,
+            max_det=max_detections_per_image if max_detections_per_image > 0 else 300,
         )
         if not results:
             continue
@@ -218,7 +219,7 @@ def main() -> None:
     parser.add_argument("--conf", type=float, default=None)
     parser.add_argument("--overlay-max-images", type=int, default=0)
     parser.add_argument("--overlay-seed", type=int, default=0)
-    parser.add_argument("--max-detections-per-image", type=int, default=0)
+    parser.add_argument("--max-detections-per-image", type=int, default=1)
     parser.add_argument("--kpt-score-thr", type=float, default=0.3)
     parser.add_argument("--bbox-thickness", type=int, default=3)
     parser.add_argument("--radius", type=int, default=3)
@@ -253,6 +254,8 @@ def main() -> None:
         "verbose": True,
         "plots": True,
     }
+    if args.max_detections_per_image > 0:
+        val_kwargs["max_det"] = args.max_detections_per_image
     if args.conf is not None:
         val_kwargs["conf"] = args.conf
     metrics = y.val(**val_kwargs)
